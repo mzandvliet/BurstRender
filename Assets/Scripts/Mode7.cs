@@ -4,15 +4,16 @@
 	https://www.youtube.com/watch?v=ybLZyY655iY
 
 	Todo:
-	- first write in same way, commit
-	- then, rewrite using linalg arithmetic
-	- then, use Burst for faster arithmetic
+	- rewrite using linalg arithmetic
+	- use Burst for faster arithmetic
 
 	- bonus if you take the frustum diagram and
 	render it on top of the map
 
 	Notes:
 	- y coordinates are the other way around here
+	- wraparound depends on texture sampler/impporter settings
+	- 1/z=inf issue isn't handled yet
  */
 
 using System.Collections;
@@ -24,45 +25,37 @@ using Unity.Collections;
 using Unity.Mathematics;
 
 public class Mode7 : MonoBehaviour {
-	private Texture2D _screen;
-	private Texture2D _map;
+    [SerializeField] private Texture2D _ground;
+    [SerializeField] private Texture2D _sky;
+	[SerializeField] private bool _proceduralTextures;
 
-	private readonly int2 ScreenSize = new int2(320, 240);
-    private readonly int2 MapSize = new int2(1024, 1024);
+    [SerializeField] private float _fovHalf = Mathf.PI / 4f;
+    [SerializeField] private float _near = 0.01f;
+    [SerializeField] private float _far = 0.1f;
+
+    private Texture2D _screen;
 
 	private float _worldX;
     private float _worldY;
     private float _worldRot;
 
-	[SerializeField] private float _fovHalf = Mathf.PI / 4f;
-    [SerializeField] private float _near = 0.01f;
-    [SerializeField] private float _far = 0.1f;
-
-	private void Start () {
-		_screen = new Texture2D(ScreenSize.x, ScreenSize.y, TextureFormat.ARGB32, false, true);
-        _map = new Texture2D(MapSize.x, MapSize.y, TextureFormat.ARGB32, false, true);
-		_screen.filterMode = FilterMode.Point;
-        _map.filterMode = FilterMode.Point;
+	private void Awake () {
+		_screen = new Texture2D(320, 240, TextureFormat.ARGB32, false, true);
 		
-		CreateMap(_map);
-	}
-
-	private void CreateMap(Texture2D map) {
-		for (int x = 0; x < map.width; x+=32) {
-            for (int y = 0; y < map.height; y++) {
-				// Draw horizontal lines
-				map.SetPixel(x, y, Color.magenta);
-                map.SetPixel(x + 1, y, Color.magenta);
-                map.SetPixel(x - 1, y, Color.magenta);
-
-				// Draw vertical lines (note: only works if map.width == map.height)
-                map.SetPixel(y, x, Color.blue);
-                map.SetPixel(y, x + 1, Color.blue);
-                map.SetPixel(y, x - 1, Color.blue);
-            }	
+		if (_proceduralTextures) {
+            _ground = new Texture2D(1024, 1024, TextureFormat.ARGB32, false, true);
+            _sky = _ground;
+            CreateTexture(_ground);
 		}
-		map.Apply();
+
+        _screen.filterMode = FilterMode.Point;
+        _ground.filterMode = FilterMode.Point;
+		_sky.filterMode = FilterMode.Point;
 	}
+
+    private void OnGUI() {
+        GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), _screen, ScaleMode.ScaleToFit);
+    }
 	
 	private void Update() {
 		Simulate();
@@ -79,6 +72,8 @@ public class Mode7 : MonoBehaviour {
 	}
 
 	private void Render() {
+		// Calculate frustum points
+
         float farX1 = _worldX + math.cos(_worldRot - _fovHalf) * _far;
         float farY1 = _worldY + math.sin(_worldRot - _fovHalf) * _far;
 
@@ -91,8 +86,10 @@ public class Mode7 : MonoBehaviour {
         float nearX2 = _worldX + math.cos(_worldRot + _fovHalf) * _near;
         float nearY2 = _worldY + math.sin(_worldRot + _fovHalf) * _near;
 
-        // Map takes up half the screen, with vanishing point in the middle
-        // Process per horizontal scanline
+        // Sample pixels per horizontal scanline
+        // Ground takes up half the screen, with vanishing point in the middle
+		// Sky is the same idea, but flipped upside down
+
         int halfHeight = _screen.height / 2;
         for (int y = 0; y < halfHeight; y++) {
             float sampleDepth = 1f - (float)y / ((float)halfHeight);
@@ -108,17 +105,31 @@ public class Mode7 : MonoBehaviour {
                 float sampleX = (endX - startX) * sampleWidth + startX;
                 float sampleY = (endY - startY) * sampleWidth + startY;
 
-                Color col = _map.GetPixel((int)(sampleX * _map.width), (int)(sampleY * _map.height));
+                Color mcol = _ground.GetPixel((int)(sampleX * _ground.width), (int)(sampleY * _ground.height));
+                Color scol = _sky.GetPixel((int)(sampleX * _ground.width), (int)(sampleY * _ground.height));
 
-                _screen.SetPixel(x, y, col);
+                _screen.SetPixel(x, y, mcol);
+                _screen.SetPixel(x, _screen.height - y, scol);
             }
         }
 
         _screen.Apply();
 	}
 
-	private void OnGUI() {
-		GUI.DrawTexture(new Rect(0f, 0f, _map.width * 0.5f, _map.height * 0.5f), _map, ScaleMode.ScaleToFit);
-        GUI.DrawTexture(new Rect(_map.width * 0.5f, 0f, _screen.width * 2f, _screen.height * 2f), _screen, ScaleMode.ScaleToFit);
-	}
+    private void CreateTexture(Texture2D map) {
+        for (int x = 0; x < map.width; x += 32) {
+            for (int y = 0; y < map.height; y++) {
+                // Draw horizontal lines
+                map.SetPixel(x, y, Color.magenta);
+                map.SetPixel(x + 1, y, Color.magenta);
+                map.SetPixel(x - 1, y, Color.magenta);
+
+                // Draw vertical lines (note: only works if map.width == map.height)
+                map.SetPixel(y, x, Color.blue);
+                map.SetPixel(y, x + 1, Color.blue);
+                map.SetPixel(y, x - 1, Color.blue);
+            }
+        }
+        map.Apply();
+    }
 }

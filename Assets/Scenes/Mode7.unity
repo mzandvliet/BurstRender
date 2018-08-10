@@ -217,9 +217,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 65afc53fe4d1078478184216ce8d6ab8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _fovHalf: 0.7853982
-  _near: 0.01
-  _far: 0.1
+  _ground: {fileID: 2800000, guid: c86328a22cc8d824db08de7a1e6b29ba, type: 3}
+  _sky: {fileID: 2800000, guid: 2b040c778a242444bbc9c3cb5001bee4, type: 3}
+  _proceduralTextures: 0
+  _fovHalf: 0.5
+  _near: 0.005
+  _far: 0.05
 --- !u!4 &1904808033
 Transform:
   m_ObjectHideFlags: 0
