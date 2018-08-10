@@ -14,6 +14,8 @@
 	- y coordinates are the other way around here
 	- wraparound depends on texture sampler/impporter settings
 	- 1/z=inf issue isn't handled yet
+
+	See Mode8.cs for a different take on the same code
  */
 
 using System.Collections;
