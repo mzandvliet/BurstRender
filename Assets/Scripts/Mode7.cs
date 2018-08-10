@@ -6,6 +6,7 @@
 	Todo:
 	- first write in same way, commit
 	- then, rewrite using linalg arithmetic
+	- then, use Burst for faster arithmetic
  */
 
 using System.Collections;
@@ -57,7 +58,21 @@ public class Mode7 : MonoBehaviour {
 	}
 	
 	private void Update() {
-		float farX1 = _worldX + math.cos(_worldRot - _fovHalf) * _far;
+		Simulate();
+		Render();
+	}
+
+	private void Simulate() {
+		float turn = Input.GetAxis("Horizontal");
+		float move = Input.GetAxis("Vertical");
+
+		_worldRot += turn * Time.deltaTime;
+        _worldX += move * math.cos(_worldRot) * 0.2f * Time.deltaTime;
+        _worldY += move * math.sin(_worldRot) * 0.2f * Time.deltaTime;
+	}
+
+	private void Render() {
+        float farX1 = _worldX + math.cos(_worldRot - _fovHalf) * _far;
         float farY1 = _worldY + math.sin(_worldRot - _fovHalf) * _far;
 
         float farX2 = _worldX + math.cos(_worldRot + _fovHalf) * _far;
@@ -69,30 +84,30 @@ public class Mode7 : MonoBehaviour {
         float nearX2 = _worldX + math.cos(_worldRot + _fovHalf) * _near;
         float nearY2 = _worldY + math.sin(_worldRot + _fovHalf) * _near;
 
-		// Map takes up half the screen, with vanishing point in the middle
-		// Process per horizontal scanline
-		int halfHeight = _screen.height / 2;
-		for (int y = 0; y < halfHeight; y++) {
-			float sampleDepth = (float)y / ((float)halfHeight / 2f);
+        // Map takes up half the screen, with vanishing point in the middle
+        // Process per horizontal scanline
+        int halfHeight = _screen.height / 2;
+        for (int y = 0; y < halfHeight; y++) {
+            float sampleDepth = (float)y / ((float)halfHeight / 2f);
 
-			float startX = (farX1 - nearX1) * sampleDepth + nearX1;
+            float startX = (farX1 - nearX1) * sampleDepth + nearX1;
             float startY = (farY1 - nearY1) * sampleDepth + nearY1;
 
-			float endX = (farX2 - nearX2) * sampleDepth + nearX2;
+            float endX = (farX2 - nearX2) * sampleDepth + nearX2;
             float endY = (farY2 - nearY2) * sampleDepth + nearY2;
 
-			for (int x = 0; x < _screen.width; x++) {
-				float sampleWidth = (float)x / (float)_screen.width;
-				float sampleX = (endX - startX) * sampleWidth + startX;
+            for (int x = 0; x < _screen.width; x++) {
+                float sampleWidth = (float)x / (float)_screen.width;
+                float sampleX = (endX - startX) * sampleWidth + startX;
                 float sampleY = (endY - startY) * sampleWidth + startY;
-				
-				Color col = _map.GetPixel((int)(sampleX * _map.width), (int)(sampleY * _map.height));
 
-				_screen.SetPixel(x, y, col);
-			}
+                Color col = _map.GetPixel((int)(sampleX * _map.width), (int)(sampleY * _map.height));
+
+                _screen.SetPixel(x, y, col);
+            }
         }
 
-		_screen.Apply();
+        _screen.Apply();
 	}
 
 	private void OnGUI() {
