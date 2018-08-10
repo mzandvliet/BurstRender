@@ -24,7 +24,7 @@ using Unity.Jobs;
 using Unity.Collections;
 using Unity.Mathematics;
 
-public class Mode7 : MonoBehaviour {
+public class Mode8 : MonoBehaviour {
     [SerializeField] private Texture2D _ground;
     [SerializeField] private Texture2D _sky;
 	[SerializeField] private bool _proceduralTextures;
@@ -33,10 +33,11 @@ public class Mode7 : MonoBehaviour {
     [SerializeField] private float _near = 0.01f;
     [SerializeField] private float _far = 0.1f;
 
+    [SerializeField] private float _moveSpeed = 0.2f;
+
     private Texture2D _screen;
 
-	private float _worldX;
-    private float _worldY;
+	private float2 _worldPos;
     private float _worldRot;
 
 	private void Awake () {
@@ -64,27 +65,30 @@ public class Mode7 : MonoBehaviour {
 
 	private void Simulate() {
 		float turn = Input.GetAxis("Horizontal");
-		float move = Input.GetAxis("Vertical");
+		float walk = Input.GetAxis("Vertical");
 
-		_worldRot += turn * Time.deltaTime;
-        _worldX += move * math.cos(_worldRot) * 0.2f * Time.deltaTime;
-        _worldY += move * math.sin(_worldRot) * 0.2f * Time.deltaTime;
+        _worldRot += turn * Time.deltaTime;
+
+        float2 move;
+        math.sincos(_worldRot, out move.x, out move.y);
+        _worldPos += move * walk * _moveSpeed * Time.deltaTime;
 	}
 
 	private void Render() {
 		// Calculate frustum points
 
-        float farX1 = _worldX + math.cos(_worldRot - _fovHalf) * _far;
-        float farY1 = _worldY + math.sin(_worldRot - _fovHalf) * _far;
+        float rotL = _worldRot - _fovHalf;
+        float rotR = _worldRot + _fovHalf;
 
-        float farX2 = _worldX + math.cos(_worldRot + _fovHalf) * _far;
-        float farY2 = _worldY + math.sin(_worldRot + _fovHalf) * _far;
+        float2 frustumL;
+        float2 frustumR;
+        math.sincos(rotL, out frustumL.x, out frustumL.y);
+        math.sincos(rotR, out frustumR.x, out frustumR.y);
 
-        float nearX1 = _worldX + math.cos(_worldRot - _fovHalf) * _near;
-        float nearY1 = _worldY + math.sin(_worldRot - _fovHalf) * _near;
-
-        float nearX2 = _worldX + math.cos(_worldRot + _fovHalf) * _near;
-        float nearY2 = _worldY + math.sin(_worldRot + _fovHalf) * _near;
+        float2 farL = _worldPos + frustumL * _far;
+        float2 farR = _worldPos + frustumR * _far;
+        float2 nearL = _worldPos + frustumL * _near;
+        float2 nearR = _worldPos + frustumR * _near;
 
         // Sample pixels per horizontal scanline
         // Ground takes up half the screen, with vanishing point in the middle
@@ -92,21 +96,17 @@ public class Mode7 : MonoBehaviour {
 
         int halfHeight = _screen.height / 2;
         for (int y = 0; y < halfHeight; y++) {
-            float sampleDepth = 1f - (float)y / ((float)halfHeight);
+            float z = 1f - (float)y / ((float)halfHeight);
 
-            float startX = (farX1 - nearX1) / sampleDepth + nearX1;
-            float startY = (farY1 - nearY1) / sampleDepth + nearY1;
-
-            float endX = (farX2 - nearX2) / sampleDepth + nearX2;
-            float endY = (farY2 - nearY2) / sampleDepth + nearY2;
+            float2 start = nearL + (farL - nearL) / z;
+            float2 end = nearR + (farR - nearR) / z;
 
             for (int x = 0; x < _screen.width; x++) {
                 float sampleWidth = (float)x / (float)_screen.width;
-                float sampleX = (endX - startX) * sampleWidth + startX;
-                float sampleY = (endY - startY) * sampleWidth + startY;
+                float2 sample = (end - start) * sampleWidth + start;
 
-                Color gcol = _ground.GetPixel((int)(sampleX * _ground.width), (int)(sampleY * _ground.height));
-                Color scol = _sky.GetPixel((int)(sampleX * _sky.width), (int)(sampleY * _sky.height));
+                Color gcol = _ground.GetPixel((int)(sample.x * _ground.width), (int)(sample.y * _ground.height));
+                Color scol = _sky.GetPixel((int)(sample.x * _sky.width), (int)(sample.y * _sky.height));
 
                 _screen.SetPixel(x, y, gcol);
                 _screen.SetPixel(x, _screen.height - y, scol);
