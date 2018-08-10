@@ -7,6 +7,12 @@
 	- first write in same way, commit
 	- then, rewrite using linalg arithmetic
 	- then, use Burst for faster arithmetic
+
+	- bonus if you take the frustum diagram and
+	render it on top of the map
+
+	Notes:
+	- y coordinates are the other way around here
  */
 
 using System.Collections;
@@ -27,9 +33,10 @@ public class Mode7 : MonoBehaviour {
 	private float _worldX;
     private float _worldY;
     private float _worldRot;
-	private float _fovHalf = Mathf.PI / 4f;
-	private float _near = 0.01f;
-	private float _far = 0.1f;
+
+	[SerializeField] private float _fovHalf = Mathf.PI / 4f;
+    [SerializeField] private float _near = 0.01f;
+    [SerializeField] private float _far = 0.1f;
 
 	private void Start () {
 		_screen = new Texture2D(ScreenSize.x, ScreenSize.y, TextureFormat.ARGB32, false, true);
@@ -88,13 +95,13 @@ public class Mode7 : MonoBehaviour {
         // Process per horizontal scanline
         int halfHeight = _screen.height / 2;
         for (int y = 0; y < halfHeight; y++) {
-            float sampleDepth = (float)y / ((float)halfHeight / 2f);
+            float sampleDepth = 1f - (float)y / ((float)halfHeight);
 
-            float startX = (farX1 - nearX1) * sampleDepth + nearX1;
-            float startY = (farY1 - nearY1) * sampleDepth + nearY1;
+            float startX = (farX1 - nearX1) / sampleDepth + nearX1;
+            float startY = (farY1 - nearY1) / sampleDepth + nearY1;
 
-            float endX = (farX2 - nearX2) * sampleDepth + nearX2;
-            float endY = (farY2 - nearY2) * sampleDepth + nearY2;
+            float endX = (farX2 - nearX2) / sampleDepth + nearX2;
+            float endY = (farY2 - nearY2) / sampleDepth + nearY2;
 
             for (int x = 0; x < _screen.width; x++) {
                 float sampleWidth = (float)x / (float)_screen.width;
