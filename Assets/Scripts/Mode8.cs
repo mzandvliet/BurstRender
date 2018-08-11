@@ -4,7 +4,6 @@
 	https://www.youtube.com/watch?v=ybLZyY655iY
 
 	Todo:
-	- rewrite using linalg arithmetic
 	- use Burst for faster arithmetic
 
 	- bonus if you take the frustum diagram and
