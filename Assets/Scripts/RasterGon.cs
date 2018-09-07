@@ -3,6 +3,17 @@
 	Javidx9, Youtube
 	https://www.youtube.com/watch?v=ih20l3pJoeU&t=833s
 
+    Problem 1: defining the basic types
+
+    Syntax here is more verbose than the C code
+    That, and in C the array-in-struct is on the stack as embedded
+    value type, but here here on the heap as reference. :/
+
+    Finally, triangles
+
+    Maybe we should jump immediately to vertex buffers with triangles
+    as index lists?
+
     Notes:
     - With triangle rasterization, winding order is always important. It
     is used to encode the orientation, front-facing, back facing, which
@@ -48,11 +59,15 @@ namespace Raster {
     // Todo: how to init the list/array structures?
 
     public struct Triangle {
-        public vec3f[] Verts;
+        public NativeArray<vec3f> Verts;
+
+        public Triangle(vec3f a, vec3f b, vec3f c) {
+            Verts = new NativeArray<vec3f>(3, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+        }
     }
 
     public struct Mesh {
-        public List<Triangle> Tris;
+        public NativeArray<Triangle> Tris;
     }
 
     public class RasterGon : MonoBehaviour {
@@ -62,21 +77,19 @@ namespace Raster {
             _screen = new Texture2D(320, 240, TextureFormat.ARGB32, false, true);
             _screen.filterMode = FilterMode.Point;
 
-            // Syntax here is more verbose than the C code
-            // That, and in C the array-in-struct is on the stack as embedded
-            // value type, but here here on the heap as reference. :/
+            
 
-            var cubeMesh = new Mesh() {
-                Tris = new List<Triangle>() {
-                    // South
-                    new Triangle() {
-                        Verts = new vec3f[] { new vec3f(0f, 0f, 0f), new vec3f(0f, 1f, 0f), new vec3f(1f, 1f, 0f) }
-                    },
-                    new Triangle() {
-                        Verts = new vec3f[] { new vec3f(0f, 0f, 0f), new vec3f(1f, 1f, 0f), new vec3f(1f, 0f, 0f) }
-                    }
-                }
-            };
+            // var cubeMesh = new Mesh() {
+            //     Tris = new List<Triangle>() {
+            //         // South
+            //         new Triangle() {
+            //             Verts = new vec3f[] { new vec3f(0f, 0f, 0f), new vec3f(0f, 1f, 0f), new vec3f(1f, 1f, 0f) }
+            //         },
+            //         new Triangle() {
+            //             Verts = new vec3f[] { new vec3f(0f, 0f, 0f), new vec3f(1f, 1f, 0f), new vec3f(1f, 0f, 0f) }
+            //         }
+            //     }
+            // };
         }
 
         private void OnGUI() {
