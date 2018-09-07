@@ -14,7 +14,7 @@ Todo:
 - This way getting from a Burst-style screenbuffer to a cpu-texture to a gpu render is dumb
 */
 
-public class Tracer : MonoBehaviour {
+public class WeekendTracer : MonoBehaviour {
     private ScreenBuffer _screen;
 
     private ClearJob _clear;
@@ -60,7 +60,7 @@ public class Tracer : MonoBehaviour {
     }
 
     private void LateUpdate() {
-        ToTexture2D(_screen, _colors, _tex);
+        ToTexture2D(_screen, _colors, _tex); // Lol 7ms
     }
 
     private void OnGUI() {
@@ -99,23 +99,7 @@ public class Tracer : MonoBehaviour {
             var screenPos = ToXY(i, Cam) / (float2)Cam.resolution;
             var r = MakeRay(screenPos, Cam);
 
-            Screen[i] = 0f;
-
-            var spherePos = new float3(0f, 0f, 2f);
-
-            float depth = 0;
-            for (int d = 0; d < 8; d++) {
-                var p = r.origin + r.direction * depth;
-                p -= spherePos;
-
-                float dist = SDF.Sphere(p, 1f);
-
-                if (dist < 0.001f) {
-                    Screen[i] = 1f;
-                    return;
-                }
-                depth += dist;
-            }
+            Screen[i] = HitSphere(new float3(0f, 0f, 2f), 1f, r) ? 1.0f : 0f;
         }
     }
 
@@ -132,6 +116,16 @@ public class Tracer : MonoBehaviour {
         return new Ray3f(
             new float3(),
             math.normalize(cam.lowerLeft + cam.hori * screenPos.x + cam.vert * screenPos.y));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool HitSphere(float3 center, float radius, Ray3f r) {
+        float3 oc = r.origin - center;
+        float a = math.dot(r.direction, r.direction);
+        float b = 2.0f * math.dot(oc, r.direction);
+        float c = math.dot(oc, oc) - radius * radius;
+        float discriminant = b * b - 4.0f*a*c;
+        return discriminant > 0f;
     }
 
     private static void ToTexture2D(ScreenBuffer screen, Color[] colors, Texture2D tex) {
@@ -158,20 +152,3 @@ public class Tracer : MonoBehaviour {
         }
     }
 }
-
-
-/*
-Hmm, wanted this class for easy multidim indexing
-but it's non-trivial to write
-*/
-// public struct Shape : System.IDisposable {
-//     public readonly NativeArray<int> Dimensions;
-
-//     public Shape(params int[] dims) {
-//         Dimensions = new NativeArray<int>(dims, Allocator.Persistent);
-//     }
-
-//     public void Dispose() {
-//         Dimensions.Dispose();
-//     }
-// }
