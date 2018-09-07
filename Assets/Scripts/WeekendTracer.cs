@@ -115,7 +115,7 @@ public class WeekendTracer : MonoBehaviour {
     private static Ray3f MakeRay(float2 screenPos, CameraInfo cam) {
         return new Ray3f(
             new float3(),
-            math.normalize(cam.lowerLeft + cam.hori * screenPos.x + cam.vert * screenPos.y));
+            cam.lowerLeft + cam.hori * screenPos.x + cam.vert * screenPos.y);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
