@@ -5,7 +5,6 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using RamjetMath;
 
-using ScreenBuffer = Unity.Collections.NativeArray<float>;
 using System.Runtime.CompilerServices;
 
 /* 
@@ -15,7 +14,7 @@ Todo:
 */
 
 public class WeekendTracer : MonoBehaviour {
-    private ScreenBuffer _screen;
+    private NativeArray<float3> _screen;
 
     private ClearJob _clear;
     private TraceJob _trace;
@@ -33,7 +32,7 @@ public class WeekendTracer : MonoBehaviour {
 
 
     private void Awake() {
-        _screen = new ScreenBuffer(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+        _screen = new NativeArray<float3>(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.ClearMemory);
 
         _clear = new ClearJob();
         _clear.Buffer = _screen;
@@ -81,7 +80,7 @@ public class WeekendTracer : MonoBehaviour {
 
     [BurstCompile]
     private struct ClearJob : IJobParallelFor {
-        public NativeArray<float> Buffer;
+        public NativeArray<float3> Buffer;
         public void Execute(int i) {
             Buffer[i] = 0f;
         }
@@ -89,7 +88,7 @@ public class WeekendTracer : MonoBehaviour {
 
     [BurstCompile]
     private struct TraceJob : IJobParallelFor {
-        public ScreenBuffer Screen;
+        public NativeArray<float3> Screen;
         public CameraInfo Cam;
 
         public void Execute(int i) {
@@ -104,7 +103,8 @@ public class WeekendTracer : MonoBehaviour {
             var t = HitSphere(spherePos, 1f, r);
             if (t > 0f) {
                 var normal = math.normalize((r.origin + t * r.direction) - spherePos);
-                Screen[i] = math.dot(-normal, r.direction);
+                var rdotn = math.dot(-normal, r.direction);
+                Screen[i] = new float3(1f, 0f, 0f) * math.dot(-normal, r.direction);
             }
         }
     }
@@ -138,10 +138,10 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
-    private static void ToTexture2D(ScreenBuffer screen, Color[] colors, Texture2D tex) {
+    private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex) {
         for (int i = 0; i < screen.Length; i++) {
-            float gray = screen[i];
-            colors[i] = new Color(gray, gray, gray, 1f);
+            var c = screen[i];
+            colors[i] = new Color(c.x, c.y, c.z, 1f);
         }
 
         tex.SetPixels(0, 0, Cam.resolution.x, Cam.resolution.y, colors, 0);
