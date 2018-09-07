@@ -99,7 +99,13 @@ public class WeekendTracer : MonoBehaviour {
             var screenPos = ToXY(i, Cam) / (float2)Cam.resolution;
             var r = MakeRay(screenPos, Cam);
 
-            Screen[i] = HitSphere(new float3(0f, 0f, 2f), 1f, r) ? 1.0f : 0f;
+            var spherePos = new float3(0f, 0f, 2f);
+
+            var t = HitSphere(spherePos, 1f, r);
+            if (t > 0f) {
+                var normal = math.normalize((r.origin + t * r.direction) - spherePos);
+                Screen[i] = math.dot(-normal, r.direction);
+            }
         }
     }
 
@@ -119,13 +125,17 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool HitSphere(float3 center, float radius, Ray3f r) {
+    private static float HitSphere(float3 center, float radius, Ray3f r) {
         float3 oc = r.origin - center;
         float a = math.dot(r.direction, r.direction);
         float b = 2.0f * math.dot(oc, r.direction);
         float c = math.dot(oc, oc) - radius * radius;
         float discriminant = b * b - 4.0f*a*c;
-        return discriminant > 0f;
+        if (discriminant < 0f) {
+            return -1.0f;
+        } else {
+            return (-b - math.sqrt(discriminant)) / (2.0f * a);
+        }
     }
 
     private static void ToTexture2D(ScreenBuffer screen, Color[] colors, Texture2D tex) {
