@@ -16,6 +16,8 @@ Todo:
 public class WeekendTracer : MonoBehaviour {
     private NativeArray<float3> _screen;
 
+    private NativeArray<Sphere> _spheres;
+
     private ClearJob _clear;
     private TraceJob _trace;
 
@@ -32,7 +34,14 @@ public class WeekendTracer : MonoBehaviour {
 
 
     private void Awake() {
-        _screen = new NativeArray<float3>(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+        _screen = new NativeArray<float3>(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        
+        _spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        System.Random rand = new System.Random(1234);
+        for (int i = 0; i < _spheres.Length; i++) {
+            _spheres[i] = new Sphere(new float3(-5f + 10f * Random.value, -5f + 10f * Random.value, 3f + Random.value * 10f), 0.1f + Random.value * 0.9f);
+            //_spheres[i] = new Sphere(new float3(-1f * 8 + i * 1f,0f, 2f), 1f);
+        }
 
         _clear = new ClearJob();
         _clear.Buffer = _screen;
@@ -40,13 +49,16 @@ public class WeekendTracer : MonoBehaviour {
         _trace = new TraceJob();
         _trace.Screen = _screen;
         _trace.Cam = Cam;
+        _trace.Spheres = _spheres;
 
         _colors = new Color[Cam.resolution.x * Cam.resolution.y];
         _tex = new Texture2D(Cam.resolution.x, Cam.resolution.y, TextureFormat.ARGB32, false, true);
+        _tex.filterMode = FilterMode.Point;
     }
 
     private void OnDestroy() {
         _screen.Dispose();
+        _spheres.Dispose();
     }
 
     private void Update() {
@@ -66,18 +78,6 @@ public class WeekendTracer : MonoBehaviour {
         GUI.DrawTexture(new Rect(0f, 0f, _tex.width * 2f, _tex.height * 2f), _tex);
     }
 
-    // private void OnDrawGizmos() {
-    //     var res = Cam.resolution;
-
-    //     for (int i = 0; i < res.x * res.y; i++) {
-    //         var screenPos = ToXY(i, Cam) / (float2)Cam.resolution;
-    //         var r = MakeRay(screenPos, Cam);
-
-    //         Gizmos.color = new Color(screenPos.x, 0f, screenPos.y, 1f);
-    //         Gizmos.DrawRay(r.origin, r.direction);
-    //     }
-    // }
-
     [BurstCompile]
     private struct ClearJob : IJobParallelFor {
         public NativeArray<float3> Buffer;
@@ -88,7 +88,8 @@ public class WeekendTracer : MonoBehaviour {
 
     [BurstCompile]
     private struct TraceJob : IJobParallelFor {
-        public NativeArray<float3> Screen;
+        [WriteOnly] public NativeArray<float3> Screen;
+        [ReadOnly] public NativeArray<Sphere> Spheres;
         public CameraInfo Cam;
 
         public void Execute(int i) {
@@ -98,14 +99,29 @@ public class WeekendTracer : MonoBehaviour {
             var screenPos = ToXY(i, Cam) / (float2)Cam.resolution;
             var r = MakeRay(screenPos, Cam);
 
-            var spherePos = new float3(0f, 0f, 2f);
-
-            var t = HitSphere(spherePos, 1f, r);
-            if (t > 0f) {
-                var normal = math.normalize((r.origin + t * r.direction) - spherePos);
-                var rdotn = math.dot(-normal, r.direction);
-                Screen[i] = new float3(1f, 0f, 0f) * math.dot(-normal, r.direction);
+            const float tMin = 0f;
+            const float tMax = 100f;
+            
+            HitRecord closestHit = new HitRecord();
+            int closestIdx = -1;
+            float closestT = tMax;
+            for (int s = 0; s < Spheres.Length; s++) {
+                HitRecord hit;
+                if (Spheres[s].Hit(r, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        closestIdx = s;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }    
             }
+
+            if(closestIdx > -1) {
+                Screen[i] = new float3(1f, 0f, 0.1f) * math.dot(closestHit.normal, new float3(0, 1, 0));
+            } else {
+                Screen[i] = new float3(0.8f, 0.9f, 1f);
+            }
+            
         }
     }
 
@@ -118,24 +134,15 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float3 PointOnRay(Ray3f r, float t) {
+        return r.origin + r.direction * t;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Ray3f MakeRay(float2 screenPos, CameraInfo cam) {
         return new Ray3f(
             new float3(),
             cam.lowerLeft + cam.hori * screenPos.x + cam.vert * screenPos.y);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float HitSphere(float3 center, float radius, Ray3f r) {
-        float3 oc = r.origin - center;
-        float a = math.dot(r.direction, r.direction);
-        float b = 2.0f * math.dot(oc, r.direction);
-        float c = math.dot(oc, oc) - radius * radius;
-        float discriminant = b * b - 4.0f*a*c;
-        if (discriminant < 0f) {
-            return -1.0f;
-        } else {
-            return (-b - math.sqrt(discriminant)) / (2.0f * a);
-        }
     }
 
     private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex) {
@@ -161,4 +168,62 @@ public class WeekendTracer : MonoBehaviour {
             vert = ve;
         }
     }
+
+    private struct HitRecord {
+        public float t;
+        public float3 p;
+        public float3 normal;
+    }
+
+    private interface IHittable {
+        bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit);
+    }
+
+    private struct Sphere : IHittable {
+        public float3 Center;
+        public float Radius;
+
+        public Sphere(float3 center, float radius) {
+            Center = center;
+            Radius = radius;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            // Todo: a bunch of 2s cancel each other out here
+
+            hit = new HitRecord();
+
+            float3 oc = r.origin - Center;
+            float a = math.dot(r.direction, r.direction);
+            float b = 2.0f * math.dot(oc, r.direction);
+            float c = math.dot(oc, oc) - Radius * Radius;
+            float discriminant = b * b - 4.0f * a * c;
+
+            if (discriminant > 0f) {
+                float t = (-b - math.sqrt(discriminant)) / (2.0f * a);
+                if (t < tMax && t > tMin) {
+                    hit.t = t;
+                    hit.p = PointOnRay(r, t);
+                    hit.normal = (hit.p - Center) / Radius;
+                    return true;
+                }
+
+                t = (-b + math.sqrt(discriminant)) / (2.0f * a);
+                if (t < tMax && t > tMin) {
+                    hit.t = t;
+                    hit.p = PointOnRay(r, t);
+                    hit.normal = (hit.p - Center) / Radius;
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /* Here's the deal:
+    I can't use the approach of the list of generic hittables, Burst won't let me
+    use such a thing in a job.
+
+     */
 }
