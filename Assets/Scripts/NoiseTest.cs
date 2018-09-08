@@ -16,6 +16,15 @@ public class NoiseTest : MonoBehaviour {
         // _tex = new Texture2D(res, res, TextureFormat.ARGB32, false, true);
         // var data = new Color[res * res];
 
+        var mag2 = new RamjetMath.Mag2(4, Allocator.Persistent);
+        for (uint i = 0; i < mag2._length; i++) {
+            mag2[i] = i;
+        }
+        for (uint i = 0; i < mag2._length; i++) {
+            Debug.Log(mag2[i]);
+        }
+        mag2.Dispose();
+
         var values = new NativeArray<float>(numVals, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
 
         // 226ms
@@ -25,16 +34,25 @@ public class NoiseTest : MonoBehaviour {
             values[i] = (float)rm.genrand_real2();
         }
         sw.Stop();
-        Debug.Log(sw.ElapsedMilliseconds);
+        Debug.Log("MT Managed: " + sw.ElapsedMilliseconds);
 
-        // 806ms
+        // 765ms
         var rrm = new RamjetMath.MersenneTwister(1234);
         sw = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < values.Length; i++) {
             values[i] = rrm.genrand_real2();
         }
         sw.Stop();
-        Debug.Log(sw.ElapsedMilliseconds);
+        Debug.Log("MT Burst: " + sw.ElapsedMilliseconds);
+
+        sw = System.Diagnostics.Stopwatch.StartNew();
+        var j = new RandomJob();
+        j.Values = values;
+        j.Random = rrm;
+        j.Schedule().Complete();
+        sw.Stop();
+        Debug.Log("MT Burst Job: " + sw.ElapsedMilliseconds);
+
         rrm.Dispose();
 
         // 220ms
@@ -44,7 +62,7 @@ public class NoiseTest : MonoBehaviour {
             values[i] = (float)rs.NextDouble();
         }
         sw.Stop();
-        Debug.Log(sw.ElapsedMilliseconds);
+        Debug.Log("System.Random: " + sw.ElapsedMilliseconds);
 
         // 171ms
         sw = System.Diagnostics.Stopwatch.StartNew();
@@ -52,7 +70,7 @@ public class NoiseTest : MonoBehaviour {
             values[i] = Random.value;
         }
         sw.Stop();
-        Debug.Log(sw.ElapsedMilliseconds);
+        Debug.Log("Unity.Random.value: " + sw.ElapsedMilliseconds);
 
         // float min = 2f;
         // float max = -1f;

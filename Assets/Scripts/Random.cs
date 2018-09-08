@@ -61,9 +61,62 @@
 #endregion 
 
 using System;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace RamjetMath {
+    [StructLayout(LayoutKind.Explicit)]
+    public struct Mag {
+        [FieldOffset(0)]
+        public uint a;
+        [FieldOffset(1)]
+        public uint b;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        unsafe public uint Get(uint i) {
+            fixed (uint* p = &a) {
+                return *(p + i);
+            }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    unsafe public struct Mag2 : IDisposable {
+        public uint* _buffer;
+        public uint _length;
+        private Allocator _allocator;
+
+        public Mag2(uint length, Allocator allocator) {
+            _length = length;
+            _allocator = allocator;
+            long totalSize = UnsafeUtility.SizeOf<uint>() * (long)length;
+            _buffer = (uint*)UnsafeUtility.Malloc(totalSize, UnsafeUtility.AlignOf<uint>(), allocator);
+        }
+
+        public unsafe uint this[uint index] {
+            get {
+                // CheckElementReadAccess(index);
+                // return UnsafeUtility.ReadArrayElement<T>(m_Buffer, index);
+                return *(_buffer + index);
+            }
+
+            [WriteAccessRequired]
+            set {
+                // CheckElementWriteAccess(index);
+                // UnsafeUtility.WriteArrayElement(m_Buffer, index, value);
+                *(_buffer + index) = value;
+            }
+        }
+
+        public void Dispose() {
+            UnsafeUtility.Free(_buffer, _allocator);
+            _buffer = null;
+            _length = 0;
+        }
+    }
+
     public struct MersenneTwister : IDisposable {
 
         #region "Private Parameter"
@@ -75,7 +128,8 @@ namespace RamjetMath {
         private const UInt32 LOWER_MASK = (UInt32)0x7fffffff; /* least significant r bits */
         private NativeArray<UInt32> mt; /* the array for the state vector  */
         private UInt16 mti; /* mti==N+1 means mt[N] is not initialized */
-        private NativeArray<UInt32> mag01;
+        //private NativeArray<UInt32> mag01;
+        private Mag mag01;
         #endregion
 
         #region "Constructor"
@@ -83,9 +137,12 @@ namespace RamjetMath {
 
         public MersenneTwister(UInt32 s) {
             mt = new NativeArray<UInt32>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            mag01[0] = 0;
-            mag01[1] = MATRIX_A;
+            // mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            // mag01[0] = 0;
+            // mag01[1] = MATRIX_A;
+            mag01 = new Mag();
+            mag01.a = 0;
+            mag01.b = MATRIX_A;
             /* mag01[x] = x * MATRIX_A  for x=0,1 */
             mti = N + 1;
 
@@ -94,9 +151,12 @@ namespace RamjetMath {
 
         public MersenneTwister(NativeArray<UInt32> init_key) {
             mt = new NativeArray<UInt32>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            mag01[0] = 0;
-            mag01[1] = MATRIX_A;
+            // mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            // mag01[0] = 0;
+            // mag01[1] = MATRIX_A;
+            mag01 = new Mag();
+            mag01.a = 0;
+            mag01.b = MATRIX_A;
             /* mag01[x] = x * MATRIX_A  for x=0,1 */
             mti = N + 1;
 
@@ -138,7 +198,7 @@ namespace RamjetMath {
 
         public void Dispose() {
             mt.Dispose();
-            mag01.Dispose();
+            //mag01.Dispose();
         }
 
         #endregion
@@ -200,20 +260,16 @@ namespace RamjetMath {
                 if (mti == N + 1)   /* if init_genrand() has not been called, */
                     init_genrand(5489); /* a default initial seed is used */
 
-                int idx = 0;
                 for (kk = 0; kk < N - M; kk++) {
                     y = ((mt[kk] & UPPER_MASK) | (mt[kk + 1] & LOWER_MASK)) >> 1;
-                    idx = (int)(mt[kk + 1] & 1); // Meh
-                    mt[kk] = mt[kk + M] ^ mag01[idx] ^ y;
+                    mt[kk] = mt[kk + M] ^ mag01.Get(mt[kk + 1] & 1) ^ y;
                 }
                 for (; kk < N - 1; kk++) {
                     y = ((mt[kk] & UPPER_MASK) | (mt[kk + 1] & LOWER_MASK)) >> 1;
-                    idx = (int)(mt[kk + 1] & 1); // Meh
-                    mt[kk] = mt[kk + (M - N)] ^ mag01[idx] ^ y;
+                    mt[kk] = mt[kk + (M - N)] ^ mag01.Get(mt[kk + 1] & 1) ^ y;
                 }
                 y = ((mt[N - 1] & UPPER_MASK) | (mt[0] & LOWER_MASK)) >> 1;
-                idx = (int)(mt[0] & 1); // Meh
-                mt[N - 1] = mt[M - 1] ^ mag01[idx] ^ y;
+                mt[N - 1] = mt[M - 1] ^ mag01.Get(mt[0] & 1) ^ y;
 
                 mti = 0;
             }
