@@ -24,7 +24,7 @@ public class WeekendTracer : MonoBehaviour {
     private JobHandle _renderHandle;
 
     private static readonly CameraInfo Cam = new CameraInfo(
-        new int2(512, 256),
+        new int2(1024, 512),
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
         new float3(0f, 2f, 0f));
@@ -75,7 +75,7 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void OnGUI() {
-        GUI.DrawTexture(new Rect(0f, 0f, _tex.width * 2f, _tex.height * 2f), _tex);
+        GUI.DrawTexture(new Rect(0f, 0f, _tex.width * 1.5f, _tex.height * 1.5f), _tex);
     }
 
     [BurstCompile]
@@ -117,7 +117,9 @@ public class WeekendTracer : MonoBehaviour {
             }
 
             if(closestIdx > -1) {
-                Screen[i] = new float3(1f, 0f, 0.1f) * math.dot(closestHit.normal, new float3(0, 1, 0));
+                // Screen[i] = new float3(1f, 0f, 0.1f) * math.dot(closestHit.normal, new float3(0, 1, 0));
+                Screen[i] = 0.5f + 0.5f * closestHit.normal;
+
             } else {
                 Screen[i] = new float3(0.8f, 0.9f, 1f);
             }
@@ -190,7 +192,7 @@ public class WeekendTracer : MonoBehaviour {
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit) {
-            // Todo: a bunch of 2s cancel each other out here
+            // Todo: a bunch of 2s cancel each other out here, good algebra excercise
 
             hit = new HitRecord();
 
