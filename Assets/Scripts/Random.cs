@@ -61,9 +61,10 @@
 #endregion 
 
 using System;
+using Unity.Collections;
 
 namespace RamjetMath {
-    public class MersenneTwister {
+    public struct MersenneTwister : IDisposable {
 
         #region "Private Parameter"
         /* Period parameters */
@@ -72,69 +73,74 @@ namespace RamjetMath {
         private const UInt32 MATRIX_A = (UInt32)0x9908b0df;   /* constant vector a */
         private const UInt32 UPPER_MASK = (UInt32)0x80000000; /* most significant w-r bits */
         private const UInt32 LOWER_MASK = (UInt32)0x7fffffff; /* least significant r bits */
-        private UInt32[] mt; /* the array for the state vector  */
+        private NativeArray<UInt32> mt; /* the array for the state vector  */
         private UInt16 mti; /* mti==N+1 means mt[N] is not initialized */
-        private UInt32[] mag01;
+        private NativeArray<UInt32> mag01;
         #endregion
 
         #region "Constructor"
 
+
         public MersenneTwister(UInt32 s) {
-            MT();
+            mt = new NativeArray<UInt32>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            mag01[0] = 0;
+            mag01[1] = MATRIX_A;
+            /* mag01[x] = x * MATRIX_A  for x=0,1 */
+            mti = N + 1;
+
             init_genrand(s);
         }
 
-        // coded by Mitil. 2006/01/04
-        public MersenneTwister() {
-            MT();
-
-            // auto generate seed for .NET
-            UInt32[] seed_key = new UInt32[6];
-            Byte[] rnseed = new Byte[8];
-
-            seed_key[0] = (UInt32)System.DateTime.Now.Millisecond;
-            seed_key[1] = (UInt32)System.DateTime.Now.Second;
-            seed_key[2] = (UInt32)System.DateTime.Now.DayOfYear;
-            seed_key[3] = (UInt32)System.DateTime.Now.Year;
-            ;
-            System.Security.Cryptography.RandomNumberGenerator rn
-                = new System.Security.Cryptography.RNGCryptoServiceProvider();
-            rn.GetNonZeroBytes(rnseed);
-
-            seed_key[4] = ((UInt32)rnseed[0] << 24) | ((UInt32)rnseed[1] << 16)
-                | ((UInt32)rnseed[2] << 8) | ((UInt32)rnseed[3]);
-            seed_key[5] = ((UInt32)rnseed[4] << 24) | ((UInt32)rnseed[5] << 16)
-                | ((UInt32)rnseed[6] << 8) | ((UInt32)rnseed[7]);
-
-            init_by_array(seed_key);
-
-            rn = null;
-            seed_key = null;
-            rnseed = null;
-        }
-
-        public MersenneTwister(UInt32[] init_key) {
-            MT();
+        public MersenneTwister(NativeArray<UInt32> init_key) {
+            mt = new NativeArray<UInt32>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            mag01[0] = 0;
+            mag01[1] = MATRIX_A;
+            /* mag01[x] = x * MATRIX_A  for x=0,1 */
+            mti = N + 1;
 
             init_by_array(init_key);
         }
 
-        private void MT() {
-            mt = new UInt32[N];
+        // Todo: this is nice, but it depends on using Cryptography.RNG, which takes managed array
+        // coded by Mitil. 2006/01/04
+        // public void InitWithRandomSeed() {
+        //     // auto generate seed for .NET
+        //     NativeArray<UInt32> seed_key = new NativeArray<UInt32>(6, Allocator.Temp, NativeArrayOptions.ClearMemory);
+        //     NativeArray<Byte> rnseed = new NativeArray<byte>(8, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
-            mag01 = new UInt32[] { 0, MATRIX_A };
-            /* mag01[x] = x * MATRIX_A  for x=0,1 */
+        //     seed_key[0] = (UInt32)System.DateTime.Now.Millisecond;
+        //     seed_key[1] = (UInt32)System.DateTime.Now.Second;
+        //     seed_key[2] = (UInt32)System.DateTime.Now.DayOfYear;
+        //     seed_key[3] = (UInt32)System.DateTime.Now.Year;
+        //     ;
+        //     System.Security.Cryptography.RandomNumberGenerator rn
+        //         = new System.Security.Cryptography.RNGCryptoServiceProvider();
+        //     rn.GetNonZeroBytes(rnseed);
 
-            mti = N + 1;
-        }
+        //     seed_key[4] = ((UInt32)rnseed[0] << 24) | ((UInt32)rnseed[1] << 16)
+        //         | ((UInt32)rnseed[2] << 8) | ((UInt32)rnseed[3]);
+        //     seed_key[5] = ((UInt32)rnseed[4] << 24) | ((UInt32)rnseed[5] << 16)
+        //         | ((UInt32)rnseed[6] << 8) | ((UInt32)rnseed[7]);
+
+        //     init_by_array(seed_key);
+
+        //     rn = null;
+        //     seed_key.Dispose();
+        //     rnseed.Dispose();
+        // }
+        
 
         #endregion
 
         #region "Destructor"
-        ~MersenneTwister() {
-            mt = null;
-            mag01 = null;
+
+        public void Dispose() {
+            mt.Dispose();
+            mag01.Dispose();
         }
+
         #endregion
 
         #region "seed init"
@@ -156,8 +162,8 @@ namespace RamjetMath {
         /* init_key is the array for initializing keys */
         /* key_length is its length */
         /* slight change for C++, 2004/2/26 */
-        private void init_by_array(UInt32[] init_key) {
-            UInt32 i, j;
+        private void init_by_array(NativeArray<UInt32> init_key) {
+            Int32 i, j; // Were Uint
             Int32 k;
             Int32 key_length = init_key.Length;
 
@@ -194,16 +200,20 @@ namespace RamjetMath {
                 if (mti == N + 1)   /* if init_genrand() has not been called, */
                     init_genrand(5489); /* a default initial seed is used */
 
+                int idx = 0;
                 for (kk = 0; kk < N - M; kk++) {
                     y = ((mt[kk] & UPPER_MASK) | (mt[kk + 1] & LOWER_MASK)) >> 1;
-                    mt[kk] = mt[kk + M] ^ mag01[mt[kk + 1] & 1] ^ y;
+                    idx = (int)(mt[kk + 1] & 1); // Meh
+                    mt[kk] = mt[kk + M] ^ mag01[idx] ^ y;
                 }
                 for (; kk < N - 1; kk++) {
                     y = ((mt[kk] & UPPER_MASK) | (mt[kk + 1] & LOWER_MASK)) >> 1;
-                    mt[kk] = mt[kk + (M - N)] ^ mag01[mt[kk + 1] & 1] ^ y;
+                    idx = (int)(mt[kk + 1] & 1); // Meh
+                    mt[kk] = mt[kk + (M - N)] ^ mag01[idx] ^ y;
                 }
                 y = ((mt[N - 1] & UPPER_MASK) | (mt[0] & LOWER_MASK)) >> 1;
-                mt[N - 1] = mt[M - 1] ^ mag01[mt[0] & 1] ^ y;
+                idx = (int)(mt[0] & 1); // Meh
+                mt[N - 1] = mt[M - 1] ^ mag01[idx] ^ y;
 
                 mti = 0;
             }
@@ -251,6 +261,7 @@ namespace RamjetMath {
             UInt32 a = genrand_Int32() >> 5, b = genrand_Int32() >> 6;
             return ((double)a * 67108864.0 + b) * ((double)1.0 / 9007199254740992.0);
         }
+
         /* These real versions are due to Isaku Wada, 2002/01/09 added */
         #endregion
 
