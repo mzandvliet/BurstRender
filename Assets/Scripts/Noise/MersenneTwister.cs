@@ -67,45 +67,60 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
 namespace RamjetMath {
-    [StructLayout(LayoutKind.Explicit)]
-    public struct Mag {
-        [FieldOffset(0)]
-        public uint a;
-        [FieldOffset(1)]
-        public uint b;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        unsafe public uint Get(uint i) {
-            fixed (uint* p = &a) {
-                return *(p + i);
-            }
-        }
-    }
-
     [StructLayout(LayoutKind.Sequential)]
-    unsafe public struct Mag2 : IDisposable {
-        public uint* _buffer;
-        public uint _length;
+    unsafe public struct UnsafeUintArray : IDisposable {
+        [NativeDisableUnsafePtrRestriction]
+        public UInt32* _buffer;
+        public UInt32 _length;
         private Allocator _allocator;
 
-        public Mag2(uint length, Allocator allocator) {
+        public UnsafeUintArray(uint length, Allocator allocator) {
             _length = length;
             _allocator = allocator;
-            long totalSize = UnsafeUtility.SizeOf<uint>() * (long)length;
-            _buffer = (uint*)UnsafeUtility.Malloc(totalSize, UnsafeUtility.AlignOf<uint>(), allocator);
+            long totalSize = UnsafeUtility.SizeOf<UInt32>() * (long)length;
+            _buffer = (uint*)UnsafeUtility.Malloc(totalSize, UnsafeUtility.AlignOf<UInt32>(), allocator);
         }
 
-        public unsafe uint this[uint index] {
+        public unsafe uint this[UInt32 index] {
             get {
-                // CheckElementReadAccess(index);
-                // return UnsafeUtility.ReadArrayElement<T>(m_Buffer, index);
                 return *(_buffer + index);
             }
 
             [WriteAccessRequired]
             set {
-                // CheckElementWriteAccess(index);
-                // UnsafeUtility.WriteArrayElement(m_Buffer, index, value);
+                *(_buffer + index) = value;
+            }
+        }
+
+        public unsafe uint this[Int32 index] {
+            get {
+                return *(_buffer + index);
+            }
+
+            [WriteAccessRequired]
+            set {
+                *(_buffer + index) = value;
+            }
+        }
+
+        public unsafe uint this[UInt16 index] {
+            get {
+                return *(_buffer + index);
+            }
+
+            [WriteAccessRequired]
+            set {
+                *(_buffer + index) = value;
+            }
+        }
+
+        public unsafe uint this[Int16 index] {
+            get {
+                return *(_buffer + index);
+            }
+
+            [WriteAccessRequired]
+            set {
                 *(_buffer + index) = value;
             }
         }
@@ -126,42 +141,33 @@ namespace RamjetMath {
         private const UInt32 MATRIX_A = (UInt32)0x9908b0df;   /* constant vector a */
         private const UInt32 UPPER_MASK = (UInt32)0x80000000; /* most significant w-r bits */
         private const UInt32 LOWER_MASK = (UInt32)0x7fffffff; /* least significant r bits */
-        private NativeArray<UInt32> mt; /* the array for the state vector  */
+        private UnsafeUintArray mt; /* the array for the state vector  */
         private UInt16 mti; /* mti==N+1 means mt[N] is not initialized */
-        //private NativeArray<UInt32> mag01;
-        private Mag mag01;
+        private UnsafeUintArray mag01;
         #endregion
 
         #region "Constructor"
 
 
         public MersenneTwister(UInt32 s) {
-            mt = new NativeArray<UInt32>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            // mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            // mag01[0] = 0;
-            // mag01[1] = MATRIX_A;
-            mag01 = new Mag();
-            mag01.a = 0;
-            mag01.b = MATRIX_A;
-            /* mag01[x] = x * MATRIX_A  for x=0,1 */
+            mt = new UnsafeUintArray((uint)N, Allocator.Persistent);
+            mag01 = new UnsafeUintArray(2, Allocator.Persistent);
+            mag01[0] = 0;
+            mag01[1] = MATRIX_A;
             mti = N + 1;
 
             init_genrand(s);
         }
 
-        public MersenneTwister(NativeArray<UInt32> init_key) {
-            mt = new NativeArray<UInt32>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            // mag01 = new NativeArray<UInt32>(2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            // mag01[0] = 0;
-            // mag01[1] = MATRIX_A;
-            mag01 = new Mag();
-            mag01.a = 0;
-            mag01.b = MATRIX_A;
-            /* mag01[x] = x * MATRIX_A  for x=0,1 */
-            mti = N + 1;
+        // public MersenneTwister(NativeArray<UInt32> init_key) {
+        //     mt = new UnsafeUintArray((uint)N, Allocator.Persistent);
+        //     mag01 = new UnsafeUintArray(2, Allocator.Persistent);
+        //     mag01[0] = 0;
+        //     mag01[1] = MATRIX_A;
+        //     mti = N + 1;
 
-            init_by_array(init_key);
-        }
+        //     init_by_array(init_key);
+        // }
 
         // Todo: this is nice, but it depends on using Cryptography.RNG, which takes managed array
         // coded by Mitil. 2006/01/04
@@ -198,7 +204,7 @@ namespace RamjetMath {
 
         public void Dispose() {
             mt.Dispose();
-            //mag01.Dispose();
+            mag01.Dispose();
         }
 
         #endregion
@@ -222,31 +228,31 @@ namespace RamjetMath {
         /* init_key is the array for initializing keys */
         /* key_length is its length */
         /* slight change for C++, 2004/2/26 */
-        private void init_by_array(NativeArray<UInt32> init_key) {
-            Int32 i, j; // Were Uint
-            Int32 k;
-            Int32 key_length = init_key.Length;
+        // private void init_by_array(NativeArray<UInt32> init_key) {
+        //     UInt32 i, j;
+        //     Int32 k;
+        //     Int32 key_length = init_key.Length;
 
-            init_genrand(19650218);
-            i = 1; j = 0;
-            k = (N > key_length ? N : key_length);
+        //     init_genrand(19650218);
+        //     i = 1; j = 0;
+        //     k = (N > key_length ? N : key_length);
 
-            for (; k > 0; k--) {
-                mt[i] = (mt[i] ^ ((mt[i - 1] ^ (mt[i - 1] >> 30)) * (UInt32)1664525))
-                    + init_key[j] + (UInt32)j; /* non linear */
-                i++; j++;
-                if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
-                if (j >= key_length) j = 0;
-            }
-            for (k = N - 1; k > 0; k--) {
-                mt[i] = (mt[i] ^ ((mt[i - 1] ^ (mt[i - 1] >> 30)) * (UInt32)1566083941))
-                    - (UInt32)i; /* non linear */
-                i++;
-                if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
-            }
+        //     for (; k > 0; k--) {
+        //         mt[i] = (mt[i] ^ ((mt[i - 1] ^ (mt[i - 1] >> 30)) * (UInt32)1664525))
+        //             + init_key[j] + (UInt32)j; /* non linear */
+        //         i++; j++;
+        //         if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
+        //         if (j >= key_length) j = 0;
+        //     }
+        //     for (k = N - 1; k > 0; k--) {
+        //         mt[i] = (mt[i] ^ ((mt[i - 1] ^ (mt[i - 1] >> 30)) * (UInt32)1566083941))
+        //             - (UInt32)i; /* non linear */
+        //         i++;
+        //         if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
+        //     }
 
-            mt[0] = 0x80000000; /* MSB is 1; assuring non-zero initial array */
-        }
+        //     mt[0] = 0x80000000; /* MSB is 1; assuring non-zero initial array */
+        // }
         #endregion
 
         #region "Get Unsigned Int 32bit number"
@@ -257,19 +263,19 @@ namespace RamjetMath {
             if (mti >= N) { /* generate N words at one time */
                 Int16 kk;
 
-                if (mti == N + 1)   /* if init_genrand() has not been called, */
-                    init_genrand(5489); /* a default initial seed is used */
+                // if (mti == N + 1)   /* if init_genrand() has not been called, */
+                //     init_genrand(5489); /* a default initial seed is used */
 
                 for (kk = 0; kk < N - M; kk++) {
                     y = ((mt[kk] & UPPER_MASK) | (mt[kk + 1] & LOWER_MASK)) >> 1;
-                    mt[kk] = mt[kk + M] ^ mag01.Get(mt[kk + 1] & 1) ^ y;
+                    mt[kk] = mt[kk + M] ^ mag01[mt[kk + 1] & 1] ^ y;
                 }
                 for (; kk < N - 1; kk++) {
                     y = ((mt[kk] & UPPER_MASK) | (mt[kk + 1] & LOWER_MASK)) >> 1;
-                    mt[kk] = mt[kk + (M - N)] ^ mag01.Get(mt[kk + 1] & 1) ^ y;
+                    mt[kk] = mt[kk + (M - N)] ^ mag01[mt[kk + 1] & 1] ^ y;
                 }
                 y = ((mt[N - 1] & UPPER_MASK) | (mt[0] & LOWER_MASK)) >> 1;
-                mt[N - 1] = mt[M - 1] ^ mag01.Get(mt[0] & 1) ^ y;
+                mt[N - 1] = mt[M - 1] ^ mag01[mt[0] & 1] ^ y;
 
                 mti = 0;
             }
@@ -296,26 +302,30 @@ namespace RamjetMath {
         #region "Get type'double' number"
         /* generates a random number on [0,1]-real-Interval */
         public float genrand_real1() {
-            return genrand_Int32() * (1.0f / 4294967295.0f);
+            const float scale = (1.0f / 4294967295.0f);
+            return genrand_Int32() * scale;
             /* divided by 2^32-1 */
         }
 
         /* generates a random number on [0,1)-real-Interval */
         public float genrand_real2() {
-            return genrand_Int32() * (1.0f / 4294967296.0f);
+            const float scale = (1.0f / 4294967296.0f);
+            return genrand_Int32() * scale;
             /* divided by 2^32 */
         }
 
         /* generates a random number on (0,1)-real-Interval */
         public float genrand_real3() {
-            return (genrand_Int32() + 0.5f) * (1.0f / 4294967296.0f);
+            const float scale = (1.0f / 4294967296.0f);
+            return (genrand_Int32() + 0.5f) * scale;
             /* divided by 2^32 */
         }
 
         /* generates a random number on [0,1) with 53-bit resolution*/
         public double genrand_res53() {
             UInt32 a = genrand_Int32() >> 5, b = genrand_Int32() >> 6;
-            return ((double)a * 67108864.0 + b) * ((double)1.0 / 9007199254740992.0);
+            const double scale = 1.0 / 9007199254740992.0;
+            return ((double)a * 67108864.0 + b) * scale;
         }
 
         /* These real versions are due to Isaku Wada, 2002/01/09 added */
