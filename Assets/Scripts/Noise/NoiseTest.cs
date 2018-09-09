@@ -9,24 +9,13 @@ public class NoiseTest : MonoBehaviour {
 
     const int res = 2048;
     const int numVals = res * res;
-    
+
     private void Start() {
-        
         _tex = new Texture2D(res, res, TextureFormat.ARGB32, false, true);
         var data = new Color[res * res];
+        var values = new NativeArray<float>(numVals, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
-        // var mag2 = new RamjetMath.UnsafeUintArray(4, Allocator.Persistent);
-        // for (uint i = 0; i < mag2._length; i++) {
-        //     mag2[i] = i;
-        // }
-        // for (uint i = 0; i < mag2._length; i++) {
-        //     Debug.Log(mag2[i]);
-        // }
-        // mag2.Dispose();
-
-        var values = new NativeArray<float>(numVals, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-
-        // 220ms
+        // 220ms, 55ms
         var rs = new System.Random(1234);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < values.Length; i++) {
@@ -35,7 +24,7 @@ public class NoiseTest : MonoBehaviour {
         sw.Stop();
         Debug.Log("System.Random: " + sw.ElapsedMilliseconds);
 
-        // 171ms
+        // 171ms, 40ms
         sw = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < values.Length; i++) {
             values[i] = Random.value;
@@ -43,7 +32,7 @@ public class NoiseTest : MonoBehaviour {
         sw.Stop();
         Debug.Log("Unity.Random.value: " + sw.ElapsedMilliseconds);
 
-        // 226ms
+        // 226ms, 71ms
         var rm = new Meisui.Random.MersenneTwister(1234);
         sw = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < values.Length; i++) {
@@ -52,7 +41,7 @@ public class NoiseTest : MonoBehaviour {
         sw.Stop();
         Debug.Log("MT Managed: " + sw.ElapsedMilliseconds);
 
-        // 351ms
+        // 351ms, 91ms
         var rrm = new RamjetMath.MersenneTwister(1234);
         sw = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < values.Length; i++) {
@@ -61,7 +50,7 @@ public class NoiseTest : MonoBehaviour {
         sw.Stop();
         Debug.Log("MT Burst: " + sw.ElapsedMilliseconds);
 
-        // 359ms
+        // 359ms, 15ms
         sw = System.Diagnostics.Stopwatch.StartNew();
         var j = new RandomJob();
         j.Values = values;

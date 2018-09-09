@@ -11,13 +11,11 @@ public class InterleavedGradientNoiseTest : MonoBehaviour {
     const int numVals = res * res;
 
     private void Start() {
-
         _tex = new Texture2D(res, res, TextureFormat.ARGB32, false, true);
         var data = new Color[res * res];
+        var values = new NativeArray<float>(numVals, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
-        var values = new NativeArray<float>(numVals, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-
-        // 500ms
+        // 500ms, 6ms
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var rj = new GradientNoiseJob();
         rj.Values = values;
@@ -26,7 +24,7 @@ public class InterleavedGradientNoiseTest : MonoBehaviour {
         sw.Stop();
         Debug.Log("IGN Job: " + sw.ElapsedMilliseconds);
 
-        // 96ms
+        // 96ms, 3ms
         sw = System.Diagnostics.Stopwatch.StartNew();
         var j = new GradientNoiseJobParallel();
         j.Values = values;
