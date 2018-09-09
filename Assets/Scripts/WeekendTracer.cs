@@ -21,8 +21,6 @@ public class WeekendTracer : MonoBehaviour {
     private ClearJob _clear;
     private TraceJob _trace;
 
-    private JobHandle _renderHandle;
-
     private static readonly CameraInfo Cam = new CameraInfo(
         new int2(1024, 512),
         new float3(-2.0f, -1.0f, 1.0f),
@@ -54,31 +52,33 @@ public class WeekendTracer : MonoBehaviour {
         _tex.filterMode = FilterMode.Point;
     }
 
+    private void Update() {
+        if (Input.GetKeyDown(KeyCode.Space)) {
+            Render();
+        }
+    }
+
     private void OnDestroy() {
         _screen.Dispose();
         _spheres.Dispose();
     }
 
-    private void Update() {
+    private void Render() {
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         var h = new JobHandle();
-        //h = _clear.Schedule(_screen.Length, 64, h);
+        h = _clear.Schedule(_screen.Length, 64, h);
         h = _trace.Schedule(_screen.Length, 64, h);
-        _renderHandle = h;
-
-        _renderHandle.Complete();
+        h.Complete();
 
         sw.Stop();
-        Debug.Log("Elapsed ticks: " + sw.ElapsedTicks);
-    }
+        Debug.Log("Elapsed milis: " + sw.ElapsedMilliseconds);
 
-    private void LateUpdate() {
-        ToTexture2D(_screen, _colors, _tex); // Lol 7ms
+        ToTexture2D(_screen, _colors, _tex);
     }
 
     private void OnGUI() {
-        GUI.DrawTexture(new Rect(0f, 0f, _tex.width * 1.5f, _tex.height * 1.5f), _tex);
+        GUI.DrawTexture(new Rect(0f, 0f, _tex.width, _tex.height), _tex);
     }
 
     [BurstCompile]
@@ -96,9 +96,6 @@ public class WeekendTracer : MonoBehaviour {
         public CameraInfo Cam;
 
         public void Execute(int i) {
-            // Create a camera ray
-            // sample distance to sphere at origin
-
             const float tMin = 0f;
             const float tMax = 100f;
             const int raysPP = 8;
