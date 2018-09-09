@@ -32,7 +32,6 @@ public class WeekendTracer : MonoBehaviour {
     private Color[] _colors;
     private Texture2D _tex;
 
-
     private void Awake() {
         _screen = new NativeArray<float3>(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         
@@ -40,7 +39,6 @@ public class WeekendTracer : MonoBehaviour {
         System.Random rand = new System.Random(1234);
         for (int i = 0; i < _spheres.Length; i++) {
             _spheres[i] = new Sphere(new float3(-5f + 10f * Random.value, -5f + 10f * Random.value, 3f + Random.value * 10f), 0.1f + Random.value * 0.9f);
-            //_spheres[i] = new Sphere(new float3(-1f * 8 + i * 1f,0f, 2f), 1f);
         }
 
         _clear = new ClearJob();
@@ -62,12 +60,17 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void Update() {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
         var h = new JobHandle();
-        h = _clear.Schedule(_screen.Length, 64, h);
+        //h = _clear.Schedule(_screen.Length, 64, h);
         h = _trace.Schedule(_screen.Length, 64, h);
         _renderHandle = h;
 
         _renderHandle.Complete();
+
+        sw.Stop();
+        Debug.Log("Elapsed ticks: " + sw.ElapsedTicks);
     }
 
     private void LateUpdate() {
@@ -96,40 +99,47 @@ public class WeekendTracer : MonoBehaviour {
             // Create a camera ray
             // sample distance to sphere at origin
 
-            var screenPos = ToXY(i, Cam) / (float2)Cam.resolution;
-            var r = MakeRay(screenPos, Cam);
-
             const float tMin = 0f;
             const float tMax = 100f;
+            const int raysPP = 8;
+
+            var screenPos = ToXY(i, Cam);
+
+            float3 c = new float3(0f);
             
-            HitRecord closestHit = new HitRecord();
-            int closestIdx = -1;
-            float closestT = tMax;
-            for (int s = 0; s < Spheres.Length; s++) {
-                HitRecord hit;
-                if (Spheres[s].Hit(r, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
-                        closestIdx = s;
-                        closestHit = hit;
-                        closestT = hit.t;
+            for (int r = 0; r < raysPP; r++) {
+                float2 jitter = InterleavedGradientNoise(screenPos + new float2(r, r));
+                float2 p = (screenPos + jitter) / (float2)Cam.resolution;
+                var ray = MakeRay(p, Cam);
+
+                HitRecord closestHit = new HitRecord();
+                int closestIdx = -1;
+                float closestT = tMax;
+                for (int s = 0; s < Spheres.Length; s++) {
+                    HitRecord hit;
+                    if (Spheres[s].Hit(ray, tMin, tMax, out hit)) {
+                        if (hit.t < closestT) {
+                            closestIdx = s;
+                            closestHit = hit;
+                            closestT = hit.t;
+                        }
                     }
-                }    
+                }
+
+                if (closestIdx > -1) {
+                    c += new float3(1f, 0f, 0.1f) * math.dot(closestHit.normal, new float3(0, 1, 0));
+                } else {
+                    c += new float3(0.8f, 0.9f, 1f);
+                }
             }
 
-            if(closestIdx > -1) {
-                // Screen[i] = new float3(1f, 0f, 0.1f) * math.dot(closestHit.normal, new float3(0, 1, 0));
-                Screen[i] = 0.5f + 0.5f * closestHit.normal;
-
-            } else {
-                Screen[i] = new float3(0.8f, 0.9f, 1f);
-            }
-            
+            Screen[i] = c / (float)raysPP;
         }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int2 ToXY(int screenIdx, CameraInfo cam) {
-        return new int2(
+    private static float2 ToXY(int screenIdx, CameraInfo cam) {
+        return new float2(
             (screenIdx % cam.resolution.x),
             (screenIdx / cam.resolution.x)
         );
@@ -144,7 +154,16 @@ public class WeekendTracer : MonoBehaviour {
     private static Ray3f MakeRay(float2 screenPos, CameraInfo cam) {
         return new Ray3f(
             new float3(),
-            cam.lowerLeft + cam.hori * screenPos.x + cam.vert * screenPos.y);
+            cam.lowerLeft +
+            cam.hori * screenPos.x +
+            cam.vert * screenPos.y);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float InterleavedGradientNoise(float2 xy) {
+        return math.frac(52.9829189f
+                    * math.frac(xy.x * 0.06711056f
+                            + xy.y * 0.00583715f));
     }
 
     private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex) {
