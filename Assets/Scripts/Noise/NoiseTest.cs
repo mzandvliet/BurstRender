@@ -52,14 +52,33 @@ public class NoiseTest : MonoBehaviour {
 
         // 359ms, 15ms
         sw = System.Diagnostics.Stopwatch.StartNew();
-        var j = new RandomJob();
-        j.Values = values;
-        j.Random = rrm;
-        j.Schedule().Complete();
+        var mtj = new MTJob();
+        mtj.Values = values;
+        mtj.Random = rrm;
+        mtj.Schedule().Complete();
         sw.Stop();
+        rrm.Dispose();
         Debug.Log("MT Burst Job: " + sw.ElapsedMilliseconds);
 
-        rrm.Dispose();
+        // 162ms, 76
+        var xor = new Xorshift(1234);
+        sw = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < values.Length; i++) {
+            values[i] = xor.NextFloat();
+        }
+        sw.Stop();
+        Debug.Log("XOR Managed: " + sw.ElapsedMilliseconds);
+
+        // 1107, 21ms
+        sw = System.Diagnostics.Stopwatch.StartNew();
+        var xorb = new XorshiftBurst(1234);
+        var xorj = new XorShiftJob();
+        xorj.Values = values;
+        xorj.Random = xorb;
+        xorj.Schedule().Complete();
+        sw.Stop();
+        xorb.Dispose();
+        Debug.Log("XOR Burst Job: " + sw.ElapsedMilliseconds);
 
 
         float min = 2f;
@@ -90,13 +109,25 @@ public class NoiseTest : MonoBehaviour {
     }
 
     [BurstCompile]
-    public struct RandomJob : IJob {
+    public struct MTJob : IJob {
         [WriteOnly] public NativeArray<float> Values;
         public RamjetMath.MersenneTwister Random;
 
         public void Execute() {
             for (int i = 0; i < Values.Length; i++) {
                 Values[i] = Random.genrand_real2();
+            }
+        }
+    }
+
+    [BurstCompile]
+    public struct XorShiftJob : IJob {
+        [WriteOnly] public NativeArray<float> Values;
+        public XorshiftBurst Random;
+
+        public void Execute() {
+            for (int i = 0; i < Values.Length; i++) {
+                Values[i] = Random.NextFloat();
             }
         }
     }
