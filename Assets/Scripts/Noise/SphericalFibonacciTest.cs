@@ -22,7 +22,7 @@ public class SphericalFibonacciTest : MonoBehaviour {
 
     private void Awake() {
         _points = new Vector3[128];
-        SphericalFib(ref _points);
+        SphericalFibComplex(ref _points);
     }
     private void OnDrawGizmos() {
         if (!Application.isPlaying) {
@@ -68,5 +68,64 @@ public class SphericalFibonacciTest : MonoBehaviour {
             output[output.Length - i - 1] = vz;
             indices[i + output.Length / 2] = i + output.Length / 2;
         }
+    }
+
+    void SphericalFibComplex(ref Vector3[] output) {
+        float n = output.Length / 2.0f;
+        float dz = 1.0f / n;
+        float z = 1.0f - dz / 2.0f;
+        int[] indices = new int[output.Length];
+
+        float2 phi = new float2(1,0);
+        float2 dphi;
+        math.sincos(Mathf.PI * (3.0f - math.sqrt(5.0f)), out dphi.x, out dphi.y);
+
+        for (int j = 0; j < n; j++) {
+            float zj = z;
+            float thetaj = math.acos(zj);
+            z = z - dz;
+            phi = ComplexF.Mul(dphi, phi);
+
+            float sinThetaJ = math.sin(thetaj);
+
+            output[j] = new Vector3(phi.x * sinThetaJ,
+                                    zj,
+                                    sinThetaJ * phi.y);
+            indices[j] = j;
+        }
+
+        // The code above only covers a hemisphere, this mirrors it into a sphere.
+        for (int i = 0; i < n; i++) {
+            var vz = output[i];
+            vz.y *= -1;
+            output[output.Length - i - 1] = vz;
+            indices[i + output.Length / 2] = i + output.Length / 2;
+        }
+    }
+}
+
+public static class ComplexF {
+    public const float Tau = Mathf.PI * 2f;
+
+    public static float2 Mul(float2 a, float2 b) {
+        return new float2(
+            a.x * b.x - a.y * b.y,
+            a.x * b.y + a.y * b.x);
+    }
+
+    public static float2 GetRotor(float freq, int samplerate) {
+        float phaseStep = (Tau * freq) / samplerate;
+
+        return new float2(
+            math.cos(phaseStep),
+            math.sin(phaseStep));
+    }
+}
+
+public static class ComplexI {
+    public static int2 Mul(int2 a, int2 b) {
+        return new int2(
+            a.x * b.x - a.y * b.y,
+            a.x * b.y + a.y * b.x);
     }
 }
