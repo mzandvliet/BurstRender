@@ -36,7 +36,7 @@ Shader "Custom/ManySpheres" {
             // this mod6 index buffer
             uint idx = indices[id % 6];
             uint sphereId = id / 6;
-            float2 quadCoord = float2(idx%2, (idx%4)/2) * 2.0 - 1.0;
+            float2 quadCoord = (float2(idx%2, (idx%4)/2) * 2.0 - 1.0) * 0.3;
 
             float3 spherePos = spheres[sphereId];
 
@@ -44,7 +44,7 @@ Shader "Custom/ManySpheres" {
             float4 vertex_normal = float4(0,0,-1,1);
 
 			o.pos = mul(UNITY_MATRIX_VP, vertex_position);
-			o.uv = TRANSFORM_TEX(quadCoord, _MainTex); // verts[id].uv
+			o.uv = TRANSFORM_TEX(quadCoord, _MainTex);
 			float3 normalDirection = normalize(vertex_normal.xyz);
 			float4 AmbientLight = UNITY_LIGHTMODEL_AMBIENT;
 			float4 LightDirection = normalize(_WorldSpaceLightPos0);
