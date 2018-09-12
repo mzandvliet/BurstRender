@@ -13,6 +13,7 @@ using Unity.Mathematics;
 
     Use cases:
     - Generating random points on the unit sphere, such as when sampling diffuse lighting in a raytracer
+        - basically, integration of functions over spherical domains
     - Density tracking for an atmosphere simulation on the surface of a sphere (alternative to projected cube grids?)
  */
 
