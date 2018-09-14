@@ -26,6 +26,7 @@ objects and many rays, it starts winning.
 So, to optimize there's a couple of things we should try to do:
 - Cull objects, or otherwise limit the amount of objects a ray has to computationally interact with
 - Limit super-sampling for parts of the image that need it.
+- When generating random numbers, think carefully how many bits of entropy you need
 
 
 For multiple object types and lists per scene, we can make a type system that matches primitive type to
@@ -55,9 +56,13 @@ public class WeekendTracer : MonoBehaviour {
 
         _scene = MakeScene();
 
+        var fibs = new NativeArray<float3>(4096, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        SphericalFib(fibs);
+
         _trace = new TraceJob();
         _trace.Screen = _screen;
         _trace.Cam = Cam;
+        _trace.Fibs = fibs;
         _trace.Scene = _scene;
 
         _colors = new Color[Cam.resolution.x * Cam.resolution.y];
@@ -68,14 +73,20 @@ public class WeekendTracer : MonoBehaviour {
     private static Scene MakeScene() {
         var scene = new Scene();
 
+        Random.InitState(1234);
+
         scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        System.Random rand = new System.Random(1234);
+        System.Random rand = new System.Random(13345);
         for (int i = 0; i < scene.Spheres.Length; i++) {
-            scene.Spheres[i] = new Sphere(new float3(-5f + 10f * Random.value, -5f + 10f * Random.value, 3f + Random.value * 10f), 0.1f + Random.value * 0.9f);
+            scene.Spheres[i] = new Sphere(new float3(
+                -5f + 10f * Random.value,
+                 0f + 2f * Random.value,
+                 2f + 10f * Random.value),
+                0.1f + Random.value * 0.9f);
         }
 
         scene.Planes = new NativeArray<Plane>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        scene.Planes[0] = new Plane(new float3(0f, -3, 0f), new float3(0f, 1f, 0f));
+        scene.Planes[0] = new Plane(new float3(0f, -1, 0f), new float3(0f, 1f, 0f));
 
         scene.Disks = new NativeArray<Disk>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         scene.Disks[0] = new Disk(new Plane(new float3(-10f, 3f, 20f), math.normalize(new float3(0f, 1f, -1))), 5f);
@@ -96,6 +107,7 @@ public class WeekendTracer : MonoBehaviour {
     private void OnDestroy() {
         _screen.Dispose();
         _scene.Dispose();
+        _trace.Fibs.Dispose();
     }
 
     private void Render() {
@@ -128,50 +140,92 @@ public class WeekendTracer : MonoBehaviour {
     private struct TraceJob : IJobParallelFor {
         [WriteOnly] public NativeArray<float3> Screen;
         [ReadOnly] public Scene Scene;
+        [ReadOnly] public NativeArray<float3> Fibs;
         public CameraInfo Cam;
 
         public void Execute(int i) {
             const float tMin = 0f;
             const float tMax = 100f;
             const int raysPP = 8;
+            const float eps = 0.0001f;
+
+            // Todo: spawn a XorShift instance seeded by i and some other factors
+            // First, make the XorShift actually work, test it thoroughly
 
             var screenPos = ToXY(i, Cam);
+            float3 pixel = new float3(0f);
 
-            float3 c = new float3(0f);
+            float3 lightDir = new float3(0, -1, 0);
+            float3 skyLight = new float3(0.8f, 0.9f, 1f);
             
             for (int r = 0; r < raysPP; r++) {
                 float2 jitter = InterleavedGradientNoise(screenPos + new float2(r, r));
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
 
-                HitRecord hit;
-                bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hit);
+                float3 light = new float3(0, 0, 0);
+
+                HitRecord hitA;
+                bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitA);
 
                 if (hitAnything) {
-                    float3 matcol;
-                    switch (hit.material) {
-                        case 0:
-                            matcol = new float3(0f, 1f, 0.1f); ;
-                            break;
-                        case 1:
-                            matcol = new float3(0.2f, 1f, 0.9f);
-                            break;
-                        case 2:
-                            matcol = new float3(0.9f, 0.1f, 0.1f);
-                            break;
-                        default:
-                            matcol = new float3(1f, 1f, 1f);
-                            break;
+                    // First, trace directly towards primary light, see what you find
+                    
+                    ray.origin = hitA.p + hitA.normal + eps;
+                    ray.direction = -lightDir;
+                    HitRecord hitB;
+                    hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitB);
+                    if (hitAnything) {
+                        //light += Shade(hitB, lightDir, skyLight);
+                    } else {
+                        light += skyLight;
                     }
-                   
-                    c += matcol * math.dot(hit.normal, new float3(0, 1, 0));
+
+                    // Then, trace a random ray for crude indirect lighting
+
+                    ray.origin = hitA.p + hitA.normal * 1.001f + Fibs[(int)(jitter.x * Fibs.Length)];
+                    ray.direction = hitA.normal;
+                    HitRecord hitC;
+                    hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitC);
+                    const float bounceFactor = 0.5f;
+                    if (hitAnything) {
+                        light += Shade(hitC, lightDir, skyLight) * bounceFactor;
+                    } else {
+                        light += skyLight * bounceFactor;
+                    }
+
+                    light = Shade(hitA, lightDir, light);
+                    light /= 1.0f + bounceFactor; // Normalize
+                    pixel += light;
                 } else {
-                    c += new float3(0.8f, 0.9f, 1f);
+                    pixel += skyLight;
                 }
             }
 
-            Screen[i] = c / (float)raysPP;
+            Screen[i] = pixel / (float)raysPP;
         }
+    }
+
+    private static float3 Shade(HitRecord hit, float3 lightDir, float3 light) {
+        float3 albedo;
+        switch (hit.material) {
+            case 0:
+                albedo = new float3(0.7f, 0.5f, 0.97f);
+                break;
+            case 1:
+                albedo = new float3(0.2f, 1f, 0.9f);
+                break;
+            case 2:
+                albedo = new float3(0.9f, 0.1f, 0.1f);
+                break;
+            default:
+                albedo = new float3(1f, 1f, 1f);
+                break;
+        }
+
+        float ndotl = math.max(0f, -math.dot(hit.normal, lightDir));
+
+        return (albedo * light) * ndotl;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -211,6 +265,38 @@ public class WeekendTracer : MonoBehaviour {
 
         tex.SetPixels(0, 0, Cam.resolution.x, Cam.resolution.y, colors, 0);
         tex.Apply();
+    }
+
+    private static void SphericalFib(NativeArray<float3> output) {
+        float n = output.Length / 2.0f;
+        float pi = Mathf.PI;
+        float dphi = pi * (3.0f - math.sqrt(5.0f));
+        float phi = 0f;
+        float dz = 1.0f / n;
+        float z = 1.0f - dz / 2.0f;
+        int[] indices = new int[output.Length];
+
+        for (int j = 0; j < n; j++) {
+            float zj = z;
+            float thetaj = math.acos(zj);
+            float phij = phi % (2f * pi);
+            z = z - dz;
+            phi = phi + dphi;
+
+            // spherical -> cartesian, with r = 1
+            output[j] = new Vector3((float)(math.cos(phij) * math.sin(thetaj)),
+                                    (float)(zj),
+                                    (float)(math.sin(thetaj) * math.sin(phij)));
+            indices[j] = j;
+        }
+
+        // The code above only covers a hemisphere, this mirrors it into a sphere.
+        for (int i = 0; i < n; i++) {
+            var vz = output[i];
+            vz.y *= -1;
+            output[output.Length - i - 1] = vz;
+            indices[i + output.Length / 2] = i + output.Length / 2;
+        }
     }
 
     private struct CameraInfo {
@@ -281,6 +367,8 @@ public class WeekendTracer : MonoBehaviour {
             bool hitAnything = false;
             HitRecord closestHit = new HitRecord();
             float closestT = tMax;
+
+            // Note: this is the most naive brute force scene intersection you could ever do :P
 
             // Hit planes
             for (int i = 0; i < s.Planes.Length; i++) {

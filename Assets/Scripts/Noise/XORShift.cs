@@ -6,56 +6,56 @@ using Unity.Mathematics;
 
 
 public struct XorshiftBurst : IDisposable {
-    private NativeArray<long> seed;
+    public NativeArray<long> _seed;
 
-    public XorshiftBurst(long seed) {
-        this.seed = new NativeArray<long>(4, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+    public XorshiftBurst(long seed, Allocator allocator) {
+        _seed = new NativeArray<long>(4, allocator, NativeArrayOptions.UninitializedMemory);
         for (int i = 0; i < 4; i++) {
-            this.seed[i] = seed;
+            _seed[i] = seed;
         }
     }
 
-    public XorshiftBurst(long[] seed) {
-        this.seed = new NativeArray<long>(4, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        if (seed.Length < 4) {
-            for (int i = 0; i < 4; i++) {
-                this.seed[i] = seed[0];
-            }
-        } else {
-            for (int i = 0; i < 4; i++) {
-                this.seed[i] = seed[i];
-            }
-        }
+    public XorshiftBurst(long seed0, long seed1, long seed2, long seed3, Allocator allocator) {
+        _seed = new NativeArray<long>(4, allocator, NativeArrayOptions.UninitializedMemory);
+        _seed[0] = seed0;
+        _seed[1] = seed1;
+        _seed[2] = seed2;
+        _seed[3] = seed3;
     }
 
     public void Dispose() {
-        this.seed.Dispose();
+        _seed.Dispose();
     }
 
     public long Next() {
-        long t = seed[0] ^ (seed[0] << 11);
-        seed[0] = seed[1];
-        seed[1] = seed[2];
-        seed[2] = seed[3];
-        seed[3] = (seed[3] ^ (seed[3] >> 19)) ^ (t ^ (t >> 8));
-        return seed[3];
+        long t = _seed[0] ^ (_seed[0] << 11);
+        _seed[0] = _seed[1];
+        _seed[1] = _seed[2];
+        _seed[2] = _seed[3];
+        _seed[3] = (_seed[3] ^ (_seed[3] >> 19)) ^ (t ^ (t >> 8));
+        return _seed[3];
     }
 
     public int NextInt() {
-        return (int)this.Next();
+        return (int)Next();
     }
+
+    public int NextInt(int min, int max) {
+        return min + math.abs(NextInt()) / (int.MaxValue / max);
+    }
+
     public float NextFloat() {
-        return (float)this.Next() / long.MaxValue;
+        return (float)Next() / long.MaxValue;
     }
 
     public double NextDouble() {
-        return (double)this.Next() / long.MaxValue;
+        return (double)Next() / long.MaxValue;
     }
 
     public void NextBytes(byte[] b) {
         int length = b.Length;
         for (int i = 0; i < length; i++) {
-            long n = this.Next();
+            long n = Next();
             for (int j = 0; j < 7; j++) {
                 if (i < length) {
                     b[i] = (byte)(n >> (j << 3));

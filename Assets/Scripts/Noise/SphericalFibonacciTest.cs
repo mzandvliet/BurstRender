@@ -10,6 +10,7 @@ using Unity.Mathematics;
     Todo:
     - Study how this algorithm works, write it in a couple of different ways
     - We can try to algebraically reformulate this to using complex arithmetic and no transcendentals
+    - I want one that just samples a single index for me out of n, on demand
 
     Use cases:
     - Generating random points on the unit sphere, such as when sampling diffuse lighting in a raytracer
