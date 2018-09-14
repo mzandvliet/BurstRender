@@ -32,6 +32,8 @@ public class WeekendTracer : MonoBehaviour {
 
     private void Awake() {
         _screen = new NativeArray<float3>(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        _clear = new ClearJob();
+        _clear.Buffer = _screen;
         
         _spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         System.Random rand = new System.Random(1234);
@@ -39,17 +41,21 @@ public class WeekendTracer : MonoBehaviour {
             _spheres[i] = new Sphere(new float3(-5f + 10f * Random.value, -5f + 10f * Random.value, 3f + Random.value * 10f), 0.1f + Random.value * 0.9f);
         }
 
-        _clear = new ClearJob();
-        _clear.Buffer = _screen;
+        Plane plane = new Plane(new float3(0,-10,0), new float3(0,1,0));
 
         _trace = new TraceJob();
         _trace.Screen = _screen;
         _trace.Cam = Cam;
         _trace.Spheres = _spheres;
+        _trace.Plane = plane;
 
         _colors = new Color[Cam.resolution.x * Cam.resolution.y];
         _tex = new Texture2D(Cam.resolution.x, Cam.resolution.y, TextureFormat.ARGB32, false, true);
         _tex.filterMode = FilterMode.Point;
+    }
+
+    private void Start() {
+        Render();
     }
 
     private void Update() {
@@ -93,6 +99,7 @@ public class WeekendTracer : MonoBehaviour {
     private struct TraceJob : IJobParallelFor {
         [WriteOnly] public NativeArray<float3> Screen;
         [ReadOnly] public NativeArray<Sphere> Spheres;
+        [ReadOnly] public Plane Plane;
         public CameraInfo Cam;
 
         public void Execute(int i) {
@@ -109,22 +116,41 @@ public class WeekendTracer : MonoBehaviour {
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
 
+                bool hitAnything = false;
                 HitRecord closestHit = new HitRecord();
-                int closestIdx = -1;
                 float closestT = tMax;
+
+                // Hit plane
+                HitRecord hit;
+                if (Plane.Hit(ray, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        hitAnything = true;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }
+
+                // Hit sphere list
+                int closestSphereIdx = -1;
                 for (int s = 0; s < Spheres.Length; s++) {
-                    HitRecord hit;
                     if (Spheres[s].Hit(ray, tMin, tMax, out hit)) {
                         if (hit.t < closestT) {
-                            closestIdx = s;
+                            hitAnything = true;
+                            closestSphereIdx = s;
                             closestHit = hit;
                             closestT = hit.t;
                         }
                     }
                 }
 
-                if (closestIdx > -1) {
-                    c += new float3(1f, 0f, 0.1f) * math.dot(closestHit.normal, new float3(0, 1, 0));
+                if (hitAnything) {
+                    float3 matcol;
+                    if (closestHit.material == 0) {
+                        matcol = new float3(1f, 0f, 0.1f);
+                    } else {
+                        matcol = new float3(0f, 0f, 1f);
+                    }
+                    c += matcol * math.dot(closestHit.normal, new float3(0, 1, 0));
                 } else {
                     c += new float3(0.8f, 0.9f, 1f);
                 }
@@ -191,6 +217,7 @@ public class WeekendTracer : MonoBehaviour {
         public float t;
         public float3 p;
         public float3 normal;
+        public int material;
     }
 
     private interface IHittable {
@@ -211,6 +238,7 @@ public class WeekendTracer : MonoBehaviour {
             // Todo: a bunch of 2s cancel each other out here, good algebra excercise
 
             hit = new HitRecord();
+            hit.material = 0;
 
             float3 oc = r.origin - Center;
             float a = math.dot(r.direction, r.direction);
@@ -239,9 +267,33 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
-    /* Here's the deal:
-    I can't use the approach of the list of generic hittables, Burst won't let me
-    use such a thing in a job.
+    private struct Plane : IHittable {
+        public float3 Center;
+        public float3 Normal;
 
-     */
+        public Plane(float3 center, float3 normal) {
+            Center = center;
+            Normal = normal;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            hit = new HitRecord();
+            hit.material = 1;
+
+            const float eps = 0.0001f;
+
+            if (math.abs(math.dot(r.direction, Normal)) > eps) {
+                float t = math.dot((Center - r.origin), Normal) / math.dot(r.direction, Normal);
+                if (t > eps) {
+                    hit.t = t;
+                    hit.p = PointOnRay(r, hit.t);
+                    hit.normal = Normal;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
 }
