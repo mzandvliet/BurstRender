@@ -42,7 +42,7 @@ public class WeekendTracer : MonoBehaviour {
     private TraceJob _trace;
 
     private CameraInfo _camInfo = new CameraInfo(
-        new int2(1024, 512),
+        new int2(1024, 512) * 2,
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
         new float3(0f, 2f, 0f));
@@ -166,8 +166,8 @@ public class WeekendTracer : MonoBehaviour {
 
         const float tMin = 0f;
         const float tMax = 100f;
-        const int raysPP = 4;
-        const int recursionsPR = 4;
+        const int raysPP = 1024;
+        const int recursionsPR = 8;
         
 
         public void Execute(int i) {
@@ -206,17 +206,17 @@ public class WeekendTracer : MonoBehaviour {
         HitRecord hit;
         bool hitAnything = HitTest.Scene(scene, ray, tMin, tMax, out hit);
 
-        // if (hitAnything) {
-        //     ray.origin = hit.p + hit.normal * eps;
-        //     ray.direction = hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)];
-        //     col = Trace(ref ray, ref scene, ref xor, fibs, depth++, maxDepth);
-        // } else {
-        //     var normedDir = math.normalize(ray.direction);
-        //     float t = 0.5f * (normedDir.y + 1f);
-        //     col = (1f - t) * new float3(1f) + t * scene.LightColor;
-        // }
+        if (hitAnything) {
+            ray.origin = hit.p + hit.normal * eps;
+            ray.direction = hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)];
+            col = Trace(ref ray, ref scene, ref xor, fibs, depth++, maxDepth);
+        } else {
+            var normedDir = math.normalize(ray.direction);
+            float t = 0.5f * (normedDir.y + 1f);
+            col = (1f - t) * new float3(1f) + t * scene.LightColor;
+        }
 
-        // col = col * GetAlbedo(hit.material);
+        col = col * GetAlbedo(hit.material);
 
         return col;
     }
@@ -250,11 +250,6 @@ public class WeekendTracer : MonoBehaviour {
             (screenIdx % cam.resolution.x),
             (screenIdx / cam.resolution.x)
         );
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float3 PointOnRay(Ray3f r, float t) {
-        return r.origin + r.direction * t;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -380,6 +375,11 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float3 PointOnRay(Ray3f r, float t) {
+        return r.origin + r.direction * t;
+    }
+
     private static class HitTest {
         public static bool Scene(Scene s, Ray3f r, float tMin, float tMax, out HitRecord finalHit) {
             bool hitAnything = false;
@@ -392,46 +392,84 @@ public class WeekendTracer : MonoBehaviour {
 
             // Hit planes
             for (int i = 0; i < s.Planes.Length; i++) {
-                HitTest.Test(ref r, out hit);
-                // if (HitTest.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
-                //     if (hit.t < closestT) {
-                //         hit.material = 0;
-                //         hitAnything = true;
-                //         closestHit = hit;
-                //         closestT = hit.t;
-                //     }
-                // }
+                if (HitTest.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        hit.material = 0;
+                        hitAnything = true;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }
             }
 
             // Hit disks
-            // for (int i = 0; i < s.Disks.Length; i++) {
-            //     if (HitTest.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
-            //         if (hit.t < closestT) {
-            //             hit.material = 1;
-            //             hitAnything = true;
-            //             closestHit = hit;
-            //             closestT = hit.t;
-            //         }
-            //     }
-            // }
+            for (int i = 0; i < s.Disks.Length; i++) {
+                if (HitTest.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        hit.material = 1;
+                        hitAnything = true;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }
+            }
 
             // // Hit spheres
-            // for (int i = 0; i < s.Spheres.Length; i++) {
-            //     if (HitTest.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
-            //         if (hit.t < closestT) {
-            //             hit.material = 2;
-            //             hitAnything = true;
-            //             closestHit = hit;
-            //             closestT = hit.t;
-            //         }
-            //     }
-            // }
+            for (int i = 0; i < s.Spheres.Length; i++) {
+                if (HitTest.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        hit.material = 2;
+                        hitAnything = true;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }
+            }
 
             finalHit = closestHit;
 
             return hitAnything;
         }
 
+        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        // public static bool Test(ref Ray3f r, out HitRecord hit) {
+        //     hit = new HitRecord();
+        //     return false;
+        // }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool Plane(Plane p, Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            hit = new HitRecord();
+
+            const float eps = 0.0001f;
+            if (math.abs(math.dot(r.direction, p.Normal)) > eps) {
+                float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
+                if (t > eps) {
+                    hit.t = t;
+                    hit.p = PointOnRay(r, t);
+                    hit.normal = p.Normal;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool Disk(Disk d, Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            hit = new HitRecord();
+
+            if (Plane(d.Plane, r, tMin, tMax, out hit)) {
+                var offset = (hit.p - d.Plane.Center);
+                if (math.dot(offset, offset) <= d.Radius * d.Radius) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Sphere(Sphere s, Ray3f r, float tMin, float tMax, out HitRecord hit) {
             // Todo: a bunch of 2s cancel each other out here, good algebra excercise
             hit = new HitRecord();
@@ -459,43 +497,6 @@ public class WeekendTracer : MonoBehaviour {
                     return true;
                 }
             }
-            return false;
-        }
-
-        public static bool Test(ref Ray3f r, out HitRecord hit) {
-            hit = new HitRecord();
-            return false;
-        }
-
-        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool Plane(Plane p, Ray3f r, float tMin, float tMax, out HitRecord hit) {
-            hit = new HitRecord();
-
-            // const float eps = 0.0001f;
-            // if (math.abs(math.dot(r.direction, p.Normal)) > eps) {
-            //     float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
-            //     if (t > eps) {
-            //         hit.t = t;
-            //         hit.p = PointOnRay(r, hit.t);
-            //         hit.normal = p.Normal;
-            //         return true;
-            //     }
-            // }
-
-            return false;
-        }
-
-        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool Disk(Disk d, Ray3f r, float tMin, float tMax, out HitRecord hit) {
-            hit = new HitRecord();
-
-            if (Plane(d.Plane, r, tMin, tMax, out hit)) {
-                var offset = (hit.p - d.Plane.Center);
-                if (math.dot(offset, offset) <= d.Radius * d.Radius) {
-                    return true;
-                }
-            }
-
             return false;
         }
     }
