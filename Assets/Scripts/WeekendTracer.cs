@@ -11,6 +11,9 @@ using System.Runtime.CompilerServices;
 Todo:
 - Experiment with different ways to generate rays
 - This way getting from a Burst-style screenbuffer to a cpu-texture to a gpu render is dumb
+
+After disk intersection, remove object-oriented style. Find a better way to have multiple tracable types.
+First task is to separate the object data structures from the functions that trace them
 */
 
 public class WeekendTracer : MonoBehaviour {
@@ -41,13 +44,13 @@ public class WeekendTracer : MonoBehaviour {
             _spheres[i] = new Sphere(new float3(-5f + 10f * Random.value, -5f + 10f * Random.value, 3f + Random.value * 10f), 0.1f + Random.value * 0.9f);
         }
 
-        Plane plane = new Plane(new float3(0,-10,0), new float3(0,1,0));
+        Disk plane = new Disk(new Plane(new float3(0,-10,0), new float3(0,1,0)), 100f);
 
         _trace = new TraceJob();
         _trace.Screen = _screen;
         _trace.Cam = Cam;
         _trace.Spheres = _spheres;
-        _trace.Plane = plane;
+        _trace.Disk = plane;
 
         _colors = new Color[Cam.resolution.x * Cam.resolution.y];
         _tex = new Texture2D(Cam.resolution.x, Cam.resolution.y, TextureFormat.ARGB32, false, true);
@@ -99,7 +102,7 @@ public class WeekendTracer : MonoBehaviour {
     private struct TraceJob : IJobParallelFor {
         [WriteOnly] public NativeArray<float3> Screen;
         [ReadOnly] public NativeArray<Sphere> Spheres;
-        [ReadOnly] public Plane Plane;
+        [ReadOnly] public Disk Disk;
         public CameraInfo Cam;
 
         public void Execute(int i) {
@@ -122,7 +125,7 @@ public class WeekendTracer : MonoBehaviour {
 
                 // Hit plane
                 HitRecord hit;
-                if (Plane.Hit(ray, tMin, tMax, out hit)) {
+                if (Disk.Hit(ray, tMin, tMax, out hit)) {
                     if (hit.t < closestT) {
                         hitAnything = true;
                         closestHit = hit;
@@ -145,11 +148,21 @@ public class WeekendTracer : MonoBehaviour {
 
                 if (hitAnything) {
                     float3 matcol;
-                    if (closestHit.material == 0) {
-                        matcol = new float3(1f, 0f, 0.1f);
-                    } else {
-                        matcol = new float3(0f, 0f, 1f);
+                    switch (closestHit.material) {
+                        case 0:
+                            matcol = new float3(1f, 0f, 0.1f);
+                            break;
+                        case 1:
+                            matcol = new float3(1f, 0f, 0.1f);
+                            break;
+                        case 2:
+                            matcol = new float3(0f, 1f, 0.1f);
+                            break;
+                        default:
+                            matcol = new float3(1f, 1f, 1f);
+                            break;
                     }
+                   
                     c += matcol * math.dot(closestHit.normal, new float3(0, 1, 0));
                 } else {
                     c += new float3(0.8f, 0.9f, 1f);
@@ -289,6 +302,31 @@ public class WeekendTracer : MonoBehaviour {
                     hit.t = t;
                     hit.p = PointOnRay(r, hit.t);
                     hit.normal = Normal;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    private struct Disk : IHittable {
+        public Plane Plane;
+        public float Radius;
+
+        public Disk(Plane plane, float radius) {
+            Plane = plane;
+            Radius = radius;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            hit = new HitRecord();
+
+            if (Plane.Hit(r, tMin, tMax, out hit)) {
+                var offset = (hit.p - Plane.Center);
+                if (math.dot(offset, offset) <= Radius * Radius) {
+                    hit.material = 2;
                     return true;
                 }
             }
