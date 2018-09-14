@@ -14,12 +14,27 @@ Todo:
 
 After disk intersection, remove object-oriented style. Find a better way to have multiple tracable types.
 First task is to separate the object data structures from the functions that trace them
+
+
+Now that we've done this we can compare some aspects of this style of tracing to distance fields
+- Without any culling or sorting, each ray here has to be prepared to intersect with all possible
+objects in the scene. So each step you loop over all objects. This gets expensive crazy fast, it
+goes up as n objects and r bounces happen.
+- With a single distance field to sample from that encodes multiple parts of the scene, for many
+objects and many rays, it starts winning.
+
+So, to optimize there's a couple of things we should try to do:
+- Cull objects, or otherwise limit the amount of objects a ray has to computationally interact with
+- Limit super-sampling for parts of the image that need it.
+
+
+For multiple object types and lists per scene, we can make a type system that matches primitive type to
+trace function.
 */
 
 public class WeekendTracer : MonoBehaviour {
     private NativeArray<float3> _screen;
-
-    private NativeArray<Sphere> _spheres;
+    private Scene _scene;
 
     private ClearJob _clear;
     private TraceJob _trace;
@@ -37,24 +52,35 @@ public class WeekendTracer : MonoBehaviour {
         _screen = new NativeArray<float3>(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _clear = new ClearJob();
         _clear.Buffer = _screen;
-        
-        _spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        System.Random rand = new System.Random(1234);
-        for (int i = 0; i < _spheres.Length; i++) {
-            _spheres[i] = new Sphere(new float3(-5f + 10f * Random.value, -5f + 10f * Random.value, 3f + Random.value * 10f), 0.1f + Random.value * 0.9f);
-        }
 
-        Disk plane = new Disk(new Plane(new float3(0,-10,0), new float3(0,1,0)), 100f);
+        _scene = MakeScene();
 
         _trace = new TraceJob();
         _trace.Screen = _screen;
         _trace.Cam = Cam;
-        _trace.Spheres = _spheres;
-        _trace.Disk = plane;
+        _trace.Scene = _scene;
 
         _colors = new Color[Cam.resolution.x * Cam.resolution.y];
         _tex = new Texture2D(Cam.resolution.x, Cam.resolution.y, TextureFormat.ARGB32, false, true);
         _tex.filterMode = FilterMode.Point;
+    }
+
+    private static Scene MakeScene() {
+        var scene = new Scene();
+
+        scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        System.Random rand = new System.Random(1234);
+        for (int i = 0; i < scene.Spheres.Length; i++) {
+            scene.Spheres[i] = new Sphere(new float3(-5f + 10f * Random.value, -5f + 10f * Random.value, 3f + Random.value * 10f), 0.1f + Random.value * 0.9f);
+        }
+
+        scene.Planes = new NativeArray<Plane>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        scene.Planes[0] = new Plane(new float3(0f, -3, 0f), new float3(0f, 1f, 0f));
+
+        scene.Disks = new NativeArray<Disk>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        scene.Disks[0] = new Disk(new Plane(new float3(-10f, 3f, 20f), math.normalize(new float3(0f, 1f, -1))), 5f);
+
+        return scene;
     }
 
     private void Start() {
@@ -69,7 +95,7 @@ public class WeekendTracer : MonoBehaviour {
 
     private void OnDestroy() {
         _screen.Dispose();
-        _spheres.Dispose();
+        _scene.Dispose();
     }
 
     private void Render() {
@@ -101,8 +127,7 @@ public class WeekendTracer : MonoBehaviour {
     [BurstCompile]
     private struct TraceJob : IJobParallelFor {
         [WriteOnly] public NativeArray<float3> Screen;
-        [ReadOnly] public NativeArray<Sphere> Spheres;
-        [ReadOnly] public Disk Disk;
+        [ReadOnly] public Scene Scene;
         public CameraInfo Cam;
 
         public void Execute(int i) {
@@ -119,51 +144,27 @@ public class WeekendTracer : MonoBehaviour {
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
 
-                bool hitAnything = false;
-                HitRecord closestHit = new HitRecord();
-                float closestT = tMax;
-
-                // Hit plane
                 HitRecord hit;
-                if (Disk.Hit(ray, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
-                        hitAnything = true;
-                        closestHit = hit;
-                        closestT = hit.t;
-                    }
-                }
-
-                // Hit sphere list
-                int closestSphereIdx = -1;
-                for (int s = 0; s < Spheres.Length; s++) {
-                    if (Spheres[s].Hit(ray, tMin, tMax, out hit)) {
-                        if (hit.t < closestT) {
-                            hitAnything = true;
-                            closestSphereIdx = s;
-                            closestHit = hit;
-                            closestT = hit.t;
-                        }
-                    }
-                }
+                bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hit);
 
                 if (hitAnything) {
                     float3 matcol;
-                    switch (closestHit.material) {
+                    switch (hit.material) {
                         case 0:
-                            matcol = new float3(1f, 0f, 0.1f);
+                            matcol = new float3(0f, 1f, 0.1f); ;
                             break;
                         case 1:
-                            matcol = new float3(1f, 0f, 0.1f);
+                            matcol = new float3(0.2f, 1f, 0.9f);
                             break;
                         case 2:
-                            matcol = new float3(0f, 1f, 0.1f);
+                            matcol = new float3(0.9f, 0.1f, 0.1f);
                             break;
                         default:
                             matcol = new float3(1f, 1f, 1f);
                             break;
                     }
                    
-                    c += matcol * math.dot(closestHit.normal, new float3(0, 1, 0));
+                    c += matcol * math.dot(hit.normal, new float3(0, 1, 0));
                 } else {
                     c += new float3(0.8f, 0.9f, 1f);
                 }
@@ -233,11 +234,19 @@ public class WeekendTracer : MonoBehaviour {
         public int material;
     }
 
-    private interface IHittable {
-        bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit);
+    private struct Scene : System.IDisposable {
+        public NativeArray<Sphere> Spheres;
+        public NativeArray<Plane> Planes;
+        public NativeArray<Disk> Disks;
+
+        public void Dispose() {
+            Spheres.Dispose();
+            Planes.Dispose();
+            Disks.Dispose();
+        }
     }
 
-    private struct Sphere : IHittable {
+    private struct Sphere {
         public float3 Center;
         public float Radius;
 
@@ -245,42 +254,9 @@ public class WeekendTracer : MonoBehaviour {
             Center = center;
             Radius = radius;
         }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit) {
-            // Todo: a bunch of 2s cancel each other out here, good algebra excercise
-
-            hit = new HitRecord();
-            hit.material = 0;
-
-            float3 oc = r.origin - Center;
-            float a = math.dot(r.direction, r.direction);
-            float b = 2.0f * math.dot(oc, r.direction);
-            float c = math.dot(oc, oc) - Radius * Radius;
-            float discriminant = b * b - 4.0f * a * c;
-
-            if (discriminant > 0f) {
-                float t = (-b - math.sqrt(discriminant)) / (2.0f * a);
-                if (t < tMax && t > tMin) {
-                    hit.t = t;
-                    hit.p = PointOnRay(r, t);
-                    hit.normal = (hit.p - Center) / Radius;
-                    return true;
-                }
-
-                t = (-b + math.sqrt(discriminant)) / (2.0f * a);
-                if (t < tMax && t > tMin) {
-                    hit.t = t;
-                    hit.p = PointOnRay(r, t);
-                    hit.normal = (hit.p - Center) / Radius;
-                    return true;
-                }
-            }
-            return false;
-        }
     }
 
-    private struct Plane : IHittable {
+    private struct Plane {
         public float3 Center;
         public float3 Normal;
 
@@ -288,29 +264,9 @@ public class WeekendTracer : MonoBehaviour {
             Center = center;
             Normal = normal;
         }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit) {
-            hit = new HitRecord();
-            hit.material = 1;
-
-            const float eps = 0.0001f;
-
-            if (math.abs(math.dot(r.direction, Normal)) > eps) {
-                float t = math.dot((Center - r.origin), Normal) / math.dot(r.direction, Normal);
-                if (t > eps) {
-                    hit.t = t;
-                    hit.p = PointOnRay(r, hit.t);
-                    hit.normal = Normal;
-                    return true;
-                }
-            }
-
-            return false;
-        }
     }
 
-    private struct Disk : IHittable {
+    private struct Disk {
         public Plane Plane;
         public float Radius;
 
@@ -318,15 +274,109 @@ public class WeekendTracer : MonoBehaviour {
             Plane = plane;
             Radius = radius;
         }
+    }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Hit(Ray3f r, float tMin, float tMax, out HitRecord hit) {
+    private static class HitTest {
+        public static bool Scene(Scene s, Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            bool hitAnything = false;
+            HitRecord closestHit = new HitRecord();
+            float closestT = tMax;
+
+            // Hit planes
+            for (int i = 0; i < s.Planes.Length; i++) {
+                if (HitTest.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        hit.material = 0;
+                        hitAnything = true;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }
+            }
+
+            // Hit disks
+            for (int i = 0; i < s.Disks.Length; i++) {
+                if (HitTest.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        hit.material = 1;
+                        hitAnything = true;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }
+            }
+
+            // Hit spheres
+            for (int i = 0; i < s.Spheres.Length; i++) {
+                if (HitTest.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
+                    if (hit.t < closestT) {
+                        hit.material = 2;
+                        hitAnything = true;
+                        closestHit = hit;
+                        closestT = hit.t;
+                    }
+                }
+            }
+
+            hit = closestHit;
+            return hitAnything;
+        }
+
+        public static bool Sphere(Sphere s, Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            // Todo: a bunch of 2s cancel each other out here, good algebra excercise
             hit = new HitRecord();
 
-            if (Plane.Hit(r, tMin, tMax, out hit)) {
-                var offset = (hit.p - Plane.Center);
-                if (math.dot(offset, offset) <= Radius * Radius) {
-                    hit.material = 2;
+            float3 oc = r.origin - s.Center;
+            float a = math.dot(r.direction, r.direction);
+            float b = 2.0f * math.dot(oc, r.direction);
+            float c = math.dot(oc, oc) - s.Radius * s.Radius;
+            float discriminant = b * b - 4.0f * a * c;
+
+            if (discriminant > 0f) {
+                float t = (-b - math.sqrt(discriminant)) / (2.0f * a);
+                if (t < tMax && t > tMin) {
+                    hit.t = t;
+                    hit.p = PointOnRay(r, t);
+                    hit.normal = (hit.p - s.Center) / s.Radius;
+                    return true;
+                }
+
+                t = (-b + math.sqrt(discriminant)) / (2.0f * a);
+                if (t < tMax && t > tMin) {
+                    hit.t = t;
+                    hit.p = PointOnRay(r, t);
+                    hit.normal = (hit.p - s.Center) / s.Radius;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool Plane(Plane p, Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            hit = new HitRecord();
+
+            const float eps = 0.0001f;
+            if (math.abs(math.dot(r.direction, p.Normal)) > eps) {
+                float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
+                if (t > eps) {
+                    hit.t = t;
+                    hit.p = PointOnRay(r, hit.t);
+                    hit.normal = p.Normal;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool Disk(Disk d, Ray3f r, float tMin, float tMax, out HitRecord hit) {
+            hit = new HitRecord();
+
+            if (Plane(d.Plane, r, tMin, tMax, out hit)) {
+                var offset = (hit.p - d.Plane.Center);
+                if (math.dot(offset, offset) <= d.Radius * d.Radius) {
                     return true;
                 }
             }
