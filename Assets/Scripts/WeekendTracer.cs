@@ -9,12 +9,11 @@ using System.Runtime.CompilerServices;
 
 /* 
 Todo:
+
+- Fix "Internal: JobTempAlloc has allocations that are more than 4 frames old - this is not allowed and likely a leak"
+- Show incremental results
 - Experiment with different ways to generate rays
 - This way getting from a Burst-style screenbuffer to a cpu-texture to a gpu render is dumb
-
-After disk intersection, remove object-oriented style. Find a better way to have multiple tracable types.
-First task is to separate the object data structures from the functions that trace them
-
 
 Now that we've done this we can compare some aspects of this style of tracing to distance fields
 - Without any culling or sorting, each ray here has to be prepared to intersect with all possible
@@ -28,7 +27,7 @@ So, to optimize there's a couple of things we should try to do:
 - Limit super-sampling for parts of the image that need it.
 - When generating random numbers, think carefully how many bits of entropy you need
 - Can you at all use cached irradiance? When hitting a surface, if there has been prior local light information, use it?
-
+- Render iteratively, adaptively
 
 For multiple object types and lists per scene, we can make a type system that matches primitive type to
 trace function.
@@ -37,11 +36,12 @@ trace function.
 public class WeekendTracer : MonoBehaviour {
     private NativeArray<float3> _screen;
     private Scene _scene;
+    private NativeArray<float3> _fibs;
 
     private ClearJob _clear;
     private TraceJob _trace;
 
-    private static readonly CameraInfo Cam = new CameraInfo(
+    private CameraInfo _camInfo = new CameraInfo(
         new int2(1024, 512),
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
@@ -51,24 +51,30 @@ public class WeekendTracer : MonoBehaviour {
     private Texture2D _tex;
 
     private void Awake() {
-        _screen = new NativeArray<float3>(Cam.resolution.x * Cam.resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        _screen = new NativeArray<float3>(_camInfo.resolution.x * _camInfo.resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _clear = new ClearJob();
         _clear.Buffer = _screen;
 
         _scene = MakeScene();
 
-        var fibs = new NativeArray<float3>(4096, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        GenerateFibonacciSphere(fibs);
+        _fibs = new NativeArray<float3>(4096, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        GenerateFibonacciSphere(_fibs);
 
         _trace = new TraceJob();
         _trace.Screen = _screen;
-        _trace.Cam = Cam;
-        _trace.Fibs = fibs;
+        _trace.Fibs = _fibs;
         _trace.Scene = _scene;
+        _trace.Cam = _camInfo;
 
-        _colors = new Color[Cam.resolution.x * Cam.resolution.y];
-        _tex = new Texture2D(Cam.resolution.x, Cam.resolution.y, TextureFormat.ARGB32, false, true);
+        _colors = new Color[_camInfo.resolution.x * _camInfo.resolution.y];
+        _tex = new Texture2D(_camInfo.resolution.x, _camInfo.resolution.y, TextureFormat.ARGB32, false, true);
         _tex.filterMode = FilterMode.Point;
+    }
+
+    private void OnDestroy() {
+        _screen.Dispose();
+        _scene.Dispose();
+        _fibs.Dispose();
     }
 
     private static Scene MakeScene() {
@@ -113,12 +119,6 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
-    private void OnDestroy() {
-        _screen.Dispose();
-        _scene.Dispose();
-        _trace.Fibs.Dispose();
-    }
-
     private JobHandle? _renderHandle;
     private System.Diagnostics.Stopwatch _watch;
 
@@ -140,7 +140,7 @@ public class WeekendTracer : MonoBehaviour {
     private void CompleteRender() {
         _watch.Stop();
         Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms");
-        ToTexture2D(_screen, _colors, _tex);
+        ToTexture2D(_screen, _colors, _tex, _camInfo);
         _renderHandle = null;
     }
 
@@ -166,13 +166,17 @@ public class WeekendTracer : MonoBehaviour {
 
         const float tMin = 0f;
         const float tMax = 100f;
-        const int raysPP = 512;
-        const int recursionsPR = 8;
-        const float eps = 0.0001f;
+        const int raysPP = 4;
+        const int recursionsPR = 4;
+        
 
         public void Execute(int i) {
-            // Todo: test xorshift thoroughly
-            XorshiftBurst xor = new XorshiftBurst(i * 3215, i * 502, i * 1090, i * 8513, Allocator.TempJob);
+            // Todo: test xorshift thoroughly. First few iterations can still be very correlated
+            var xor = new XorshiftBurst(i * 3215, i * 502, i * 1090, i * 8513);
+            xor.Next();
+            xor.Next();
+            xor.Next();
+            xor.Next();
 
             var screenPos = ToXY(i, Cam);
             float3 pixel = new float3(0f);
@@ -181,38 +185,40 @@ public class WeekendTracer : MonoBehaviour {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
-                pixel += Trace(ray, xor, 0, recursionsPR);
+                pixel += Trace(ref ray, ref Scene, ref xor, Fibs, 0, recursionsPR);
             }
 
             Screen[i] = pixel / (float)(raysPP);
-
-            xor.Dispose();
         }
+    }
 
-        private float3 Trace(Ray3f ray, XorshiftBurst xor, int depth, int maxDepth) {
-            float3 col = new float3(0, 0, 0);
+    private static float3 Trace(ref Ray3f ray, ref Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth) {
+        float3 col = new float3(0, 0, 0);
 
-            if (depth >= maxDepth) {
-                return col;
-            }
-
-            HitRecord hit;
-            bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hit);
-
-            if (hitAnything) {
-                ray.origin = hit.p + hit.normal * eps;
-                ray.direction = hit.normal + Fibs[xor.NextInt(0, Fibs.Length - 1)];
-                col = Trace(ray, xor, depth++, maxDepth);
-            } else {
-                var normedDir = math.normalize(ray.direction);
-                float t = 0.5f * (normedDir.y + 1f);
-                col = (1f - t) * new float3(1f) + t * Scene.LightColor;
-            }
-
-            col = col * GetAlbedo(hit.material);
-
+        if (depth >= maxDepth) {
             return col;
         }
+
+        const float tMin = 0f;
+        const float tMax = 1000f;
+        const float eps = 0.0001f;
+
+        HitRecord hit;
+        bool hitAnything = HitTest.Scene(scene, ray, tMin, tMax, out hit);
+
+        // if (hitAnything) {
+        //     ray.origin = hit.p + hit.normal * eps;
+        //     ray.direction = hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)];
+        //     col = Trace(ref ray, ref scene, ref xor, fibs, depth++, maxDepth);
+        // } else {
+        //     var normedDir = math.normalize(ray.direction);
+        //     float t = 0.5f * (normedDir.y + 1f);
+        //     col = (1f - t) * new float3(1f) + t * scene.LightColor;
+        // }
+
+        // col = col * GetAlbedo(hit.material);
+
+        return col;
     }
 
     /* 
@@ -267,13 +273,13 @@ public class WeekendTracer : MonoBehaviour {
                             + xy.y * 0.00583715f));
     }
 
-    private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex) {
+    private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex, CameraInfo cam) {
         for (int i = 0; i < screen.Length; i++) {
             var c = screen[i];
             colors[i] = new Color(c.x, c.y, c.z, 1f);
         }
 
-        tex.SetPixels(0, 0, Cam.resolution.x, Cam.resolution.y, colors, 0);
+        tex.SetPixels(0, 0, cam.resolution.x, cam.resolution.y, colors, 0);
         tex.Apply();
     }
 
@@ -375,50 +381,54 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private static class HitTest {
-        public static bool Scene(Scene s, Ray3f r, float tMin, float tMax, out HitRecord hit) {
+        public static bool Scene(Scene s, Ray3f r, float tMin, float tMax, out HitRecord finalHit) {
             bool hitAnything = false;
-            HitRecord closestHit = new HitRecord();
             float closestT = tMax;
+            HitRecord closestHit = new HitRecord();
 
             // Note: this is the most naive brute force scene intersection you could ever do :P
 
+            HitRecord hit;
+
             // Hit planes
             for (int i = 0; i < s.Planes.Length; i++) {
-                if (HitTest.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
-                        hit.material = 0;
-                        hitAnything = true;
-                        closestHit = hit;
-                        closestT = hit.t;
-                    }
-                }
+                HitTest.Test(ref r, out hit);
+                // if (HitTest.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
+                //     if (hit.t < closestT) {
+                //         hit.material = 0;
+                //         hitAnything = true;
+                //         closestHit = hit;
+                //         closestT = hit.t;
+                //     }
+                // }
             }
 
             // Hit disks
-            for (int i = 0; i < s.Disks.Length; i++) {
-                if (HitTest.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
-                        hit.material = 1;
-                        hitAnything = true;
-                        closestHit = hit;
-                        closestT = hit.t;
-                    }
-                }
-            }
+            // for (int i = 0; i < s.Disks.Length; i++) {
+            //     if (HitTest.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
+            //         if (hit.t < closestT) {
+            //             hit.material = 1;
+            //             hitAnything = true;
+            //             closestHit = hit;
+            //             closestT = hit.t;
+            //         }
+            //     }
+            // }
 
-            // Hit spheres
-            for (int i = 0; i < s.Spheres.Length; i++) {
-                if (HitTest.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
-                        hit.material = 2;
-                        hitAnything = true;
-                        closestHit = hit;
-                        closestT = hit.t;
-                    }
-                }
-            }
+            // // Hit spheres
+            // for (int i = 0; i < s.Spheres.Length; i++) {
+            //     if (HitTest.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
+            //         if (hit.t < closestT) {
+            //             hit.material = 2;
+            //             hitAnything = true;
+            //             closestHit = hit;
+            //             closestT = hit.t;
+            //         }
+            //     }
+            // }
 
-            hit = closestHit;
+            finalHit = closestHit;
+
             return hitAnything;
         }
 
@@ -452,25 +462,30 @@ public class WeekendTracer : MonoBehaviour {
             return false;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool Test(ref Ray3f r, out HitRecord hit) {
+            hit = new HitRecord();
+            return false;
+        }
+
+        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Plane(Plane p, Ray3f r, float tMin, float tMax, out HitRecord hit) {
             hit = new HitRecord();
 
-            const float eps = 0.0001f;
-            if (math.abs(math.dot(r.direction, p.Normal)) > eps) {
-                float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
-                if (t > eps) {
-                    hit.t = t;
-                    hit.p = PointOnRay(r, hit.t);
-                    hit.normal = p.Normal;
-                    return true;
-                }
-            }
+            // const float eps = 0.0001f;
+            // if (math.abs(math.dot(r.direction, p.Normal)) > eps) {
+            //     float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
+            //     if (t > eps) {
+            //         hit.t = t;
+            //         hit.p = PointOnRay(r, hit.t);
+            //         hit.normal = p.Normal;
+            //         return true;
+            //     }
+            // }
 
             return false;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Disk(Disk d, Ray3f r, float tMin, float tMax, out HitRecord hit) {
             hit = new HitRecord();
 

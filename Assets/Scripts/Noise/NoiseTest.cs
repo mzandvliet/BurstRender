@@ -11,13 +11,11 @@ public class NoiseTest : MonoBehaviour {
     const int numVals = res * res;
 
     private void Start() {
-        XorshiftBurst xor = new XorshiftBurst(5132512, 3292391, 109854, 587295, Allocator.TempJob);
+        XorshiftBurst xor = new XorshiftBurst(5132512, 3292391, 109854, 587295);
         for (int i = 0; i < 128; i++) {
             Debug.Log(xor.NextInt(0, 128));
-
-            Debug.Log(xor._seed[0] + ", " + xor._seed[1] + ", " + xor._seed[2] + ", " + xor._seed[3]);
+            Debug.Log(xor._seed0 + ", " + xor._seed1 + ", " + xor._seed2 + ", " + xor._seed3);
         }
-        xor.Dispose();
     }
 
     private void Profile() {
@@ -81,13 +79,12 @@ public class NoiseTest : MonoBehaviour {
 
         // 1107, 21ms
         sw = System.Diagnostics.Stopwatch.StartNew();
-        var xorb = new XorshiftBurst(1234, Allocator.TempJob);
+        var xorb = new XorshiftBurst(1234);
         var xorj = new XorShiftJob();
         xorj.Values = values;
         xorj.Random = xorb;
         xorj.Schedule().Complete();
         sw.Stop();
-        xorb.Dispose();
         Debug.Log("XOR Burst Job: " + sw.ElapsedMilliseconds);
 
 
