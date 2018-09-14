@@ -75,7 +75,7 @@ public class WeekendTracer : MonoBehaviour {
         var scene = new Scene();
 
         scene.LightDir = math.normalize(new float3(-0.5f, -1, 0));
-        scene.LightColor = new float3(0.8f, 0.9f, 1f);
+        scene.LightColor = new float3(0.5f, 0.7f, 1f);
 
         Random.InitState(1234);
 
@@ -85,7 +85,7 @@ public class WeekendTracer : MonoBehaviour {
             scene.Spheres[i] = new Sphere(new float3(
                 -2f + 4f * Random.value,
                  -1f + 2f * Random.value,
-                 2f + 5f * Random.value),
+                 1.5f + 5f * Random.value),
                 0.1f + Random.value * 0.9f);
         }
 
@@ -99,12 +99,17 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void Start() {
-        Render();
+        StartRender();
     }
 
     private void Update() {
-        if (Input.GetKeyDown(KeyCode.Space)) {
-            Render();
+        if (_renderHandle.HasValue && _renderHandle.Value.IsCompleted) {
+            _renderHandle.Value.Complete();
+            CompleteRender();
+        } else {
+            if (Input.GetKeyDown(KeyCode.Space)) {
+                StartRender();
+            }
         }
     }
 
@@ -114,22 +119,34 @@ public class WeekendTracer : MonoBehaviour {
         _trace.Fibs.Dispose();
     }
 
-    private void Render() {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+    private JobHandle? _renderHandle;
+    private System.Diagnostics.Stopwatch _watch;
 
-        var h = new JobHandle();
-        h = _clear.Schedule(_screen.Length, 64, h);
-        h = _trace.Schedule(_screen.Length, 64, h);
-        h.Complete();
+    private void StartRender() {
+        if (_renderHandle.HasValue) {
+            Debug.LogWarning("Cannot start new render while previous one is still busy");
+            return;
+        }
 
-        sw.Stop();
-        Debug.Log("Elapsed milis: " + sw.ElapsedMilliseconds);
+        Debug.Log("Rendering...");
 
+        _watch = System.Diagnostics.Stopwatch.StartNew();
+
+        _renderHandle = new JobHandle();
+        _renderHandle = _clear.Schedule(_screen.Length, 32, _renderHandle.Value);
+        _renderHandle = _trace.Schedule(_screen.Length, 32, _renderHandle.Value);
+    }
+
+    private void CompleteRender() {
+        _watch.Stop();
+        Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms");
         ToTexture2D(_screen, _colors, _tex);
+        _renderHandle = null;
     }
 
     private void OnGUI() {
         GUI.DrawTexture(new Rect(0f, 0f, _tex.width, _tex.height), _tex);
+        // Todo: add some controls
     }
 
     [BurstCompile]
@@ -149,7 +166,7 @@ public class WeekendTracer : MonoBehaviour {
 
         const float tMin = 0f;
         const float tMax = 100f;
-        const int raysPP = 8;
+        const int raysPP = 512;
         const int recursionsPR = 8;
         const float eps = 0.0001f;
 
@@ -187,7 +204,9 @@ public class WeekendTracer : MonoBehaviour {
                 ray.direction = hit.normal + Fibs[xor.NextInt(0, Fibs.Length - 1)];
                 col = Trace(ray, xor, depth++, maxDepth);
             } else {
-                col = Scene.LightColor;
+                var normedDir = math.normalize(ray.direction);
+                float t = 0.5f * (normedDir.y + 1f);
+                col = (1f - t) * new float3(1f) + t * Scene.LightColor;
             }
 
             col = col * GetAlbedo(hit.material);
@@ -204,16 +223,16 @@ public class WeekendTracer : MonoBehaviour {
         float3 albedo;
         switch (material) {
             case 0:
-                albedo = new float3(0.7f, 0.5f, 0.97f);
+                albedo = new float3(0.4f, 0.2f, 0.7f);
                 break;
             case 1:
                 albedo = new float3(0.2f, 1f, 0.55f);
                 break;
             case 2:
-                albedo = new float3(0.9f, 0.1f, 0.1f);
+                albedo = new float3(0.6f, 0.1f, 0.1f);
                 break;
             default:
-                albedo = new float3(1f, 1f, 1f);
+                albedo = new float3(.3f);
                 break;
         }
         return albedo;
