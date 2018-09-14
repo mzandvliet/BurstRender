@@ -2,4 +2,4 @@
 Toying with some software rendering algorithms
 
 Here's a render:
-![](https://i.imgur.com/gTtrT9X.jpeg)
+![](https://i.imgur.com/CpmjLDv.jpeg)
