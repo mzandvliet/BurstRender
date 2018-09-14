@@ -73,6 +73,9 @@ public class WeekendTracer : MonoBehaviour {
     private static Scene MakeScene() {
         var scene = new Scene();
 
+        scene.LightDir = math.normalize(new float3(-0.5f, -1, 0));
+        scene.LightColor = new float3(0.8f, 0.9f, 1f);
+
         Random.InitState(1234);
 
         scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
@@ -143,23 +146,20 @@ public class WeekendTracer : MonoBehaviour {
         [ReadOnly] public NativeArray<float3> Fibs;
         public CameraInfo Cam;
 
-        public void Execute(int i) {
-            const float tMin = 0f;
-            const float tMax = 100f;
-            const int raysPP = 8;
-            const float eps = 0.0001f;
+        const float tMin = 0f;
+        const float tMax = 100f;
+        const int raysPP = 8;
+        const float eps = 0.0001f;
 
-            // Todo: spawn a XorShift instance seeded by i and some other factors
-            // First, make the XorShift actually work, test it thoroughly
+        public void Execute(int i) {
+            // Todo: test xorshift thoroughly
+            XorshiftBurst xor = new XorshiftBurst(i * 3215, i * 502, i * 1090, i * 8513, Allocator.TempJob);
 
             var screenPos = ToXY(i, Cam);
             float3 pixel = new float3(0f);
 
-            float3 lightDir = new float3(0, -1, 0);
-            float3 skyLight = new float3(0.8f, 0.9f, 1f);
-            
             for (int r = 0; r < raysPP; r++) {
-                float2 jitter = InterleavedGradientNoise(screenPos + new float2(r, r));
+                float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
 
@@ -169,42 +169,54 @@ public class WeekendTracer : MonoBehaviour {
                 bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitA);
 
                 if (hitAnything) {
-                    // First, trace directly towards primary light, see what you find
-                    
-                    ray.origin = hitA.p + hitA.normal + eps;
-                    ray.direction = -lightDir;
-                    HitRecord hitB;
-                    hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitB);
-                    if (hitAnything) {
-                        //light += Shade(hitB, lightDir, skyLight);
-                    } else {
-                        light += skyLight;
-                    }
-
-                    // Then, trace a random ray for crude indirect lighting
-
-                    ray.origin = hitA.p + hitA.normal * 1.001f + Fibs[(int)(jitter.x * Fibs.Length)];
-                    ray.direction = hitA.normal;
+                    ray.origin = hitA.p + hitA.normal * 1.001f;
+                    ray.direction = (hitA.p + hitA.normal + Fibs[xor.NextInt(0, Fibs.Length-1)]) - hitA.p;
                     HitRecord hitC;
                     hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitC);
-                    const float bounceFactor = 0.5f;
+                    const float bounceFactor = 1.0f;
                     if (hitAnything) {
-                        light += Shade(hitC, lightDir, skyLight) * bounceFactor;
+                        light += Shade(hitC, Scene.LightDir, Scene.LightColor) * bounceFactor;
                     } else {
-                        light += skyLight * bounceFactor;
+                        light += Scene.LightColor * bounceFactor;
                     }
 
-                    light = Shade(hitA, lightDir, light);
-                    light /= 1.0f + bounceFactor; // Normalize
+                    light = Shade(hitA, Scene.LightDir, light);
                     pixel += light;
                 } else {
-                    pixel += skyLight;
+                    pixel += Scene.LightColor;
                 }
             }
 
             Screen[i] = pixel / (float)raysPP;
+
+            xor.Dispose();
         }
+
+        // private float3 Trace(Ray3f ray, XorshiftBurst xor, int depth) {
+        //     float3 col = new float3(0, 0, 0);
+
+        //     if (depth >= 4) {
+        //         return col;
+        //     }
+
+        //     HitRecord hit;
+        //     bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hit);
+
+        //     if (hitAnything) {
+        //         ray.origin = hit.p + hit.normal * (1f + eps);
+        //         ray.direction = (hit.p + hit.normal + Fibs[xor.NextInt(0, Fibs.Length - 1)]) - hit.p;
+
+        //         col = Trace(ray, xor, depth++);
+        //         col = Shade(hit, Scene.LightDir, col);
+        //     } else {
+        //         col += Scene.LightColor;
+        //     }
+
+        //     return col;
+        // }
     }
+
+    
 
     private static float3 Shade(HitRecord hit, float3 lightDir, float3 light) {
         float3 albedo;
@@ -324,6 +336,8 @@ public class WeekendTracer : MonoBehaviour {
         public NativeArray<Sphere> Spheres;
         public NativeArray<Plane> Planes;
         public NativeArray<Disk> Disks;
+        public float3 LightDir;
+        public float3 LightColor;
 
         public void Dispose() {
             Spheres.Dispose();
