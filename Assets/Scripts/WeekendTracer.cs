@@ -27,6 +27,7 @@ So, to optimize there's a couple of things we should try to do:
 - Cull objects, or otherwise limit the amount of objects a ray has to computationally interact with
 - Limit super-sampling for parts of the image that need it.
 - When generating random numbers, think carefully how many bits of entropy you need
+- Can you at all use cached irradiance? When hitting a surface, if there has been prior local light information, use it?
 
 
 For multiple object types and lists per scene, we can make a type system that matches primitive type to
@@ -57,7 +58,7 @@ public class WeekendTracer : MonoBehaviour {
         _scene = MakeScene();
 
         var fibs = new NativeArray<float3>(4096, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        SphericalFib(fibs);
+        GenerateFibonacciSphere(fibs);
 
         _trace = new TraceJob();
         _trace.Screen = _screen;
@@ -82,9 +83,9 @@ public class WeekendTracer : MonoBehaviour {
         System.Random rand = new System.Random(13345);
         for (int i = 0; i < scene.Spheres.Length; i++) {
             scene.Spheres[i] = new Sphere(new float3(
-                -5f + 10f * Random.value,
-                 0f + 2f * Random.value,
-                 2f + 10f * Random.value),
+                -2f + 4f * Random.value,
+                 -1f + 2f * Random.value,
+                 2f + 5f * Random.value),
                 0.1f + Random.value * 0.9f);
         }
 
@@ -92,7 +93,7 @@ public class WeekendTracer : MonoBehaviour {
         scene.Planes[0] = new Plane(new float3(0f, -1, 0f), new float3(0f, 1f, 0f));
 
         scene.Disks = new NativeArray<Disk>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        scene.Disks[0] = new Disk(new Plane(new float3(-10f, 3f, 20f), math.normalize(new float3(0f, 1f, -1))), 5f);
+        scene.Disks[0] = new Disk(new Plane(new float3(5f, 1f, 5f), math.normalize(new float3(0f, 1f, -1))), 5f);
 
         return scene;
     }
@@ -149,6 +150,7 @@ public class WeekendTracer : MonoBehaviour {
         const float tMin = 0f;
         const float tMax = 100f;
         const int raysPP = 8;
+        const int recursionsPR = 8;
         const float eps = 0.0001f;
 
         public void Execute(int i) {
@@ -162,70 +164,50 @@ public class WeekendTracer : MonoBehaviour {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
-
-                float3 light = new float3(0, 0, 0);
-
-                HitRecord hitA;
-                bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitA);
-
-                if (hitAnything) {
-                    ray.origin = hitA.p + hitA.normal * 1.001f;
-                    ray.direction = (hitA.p + hitA.normal + Fibs[xor.NextInt(0, Fibs.Length-1)]) - hitA.p;
-                    HitRecord hitC;
-                    hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hitC);
-                    const float bounceFactor = 1.0f;
-                    if (hitAnything) {
-                        light += Shade(hitC, Scene.LightDir, Scene.LightColor) * bounceFactor;
-                    } else {
-                        light += Scene.LightColor * bounceFactor;
-                    }
-
-                    light = Shade(hitA, Scene.LightDir, light);
-                    pixel += light;
-                } else {
-                    pixel += Scene.LightColor;
-                }
+                pixel += Trace(ray, xor, 0, recursionsPR);
             }
 
-            Screen[i] = pixel / (float)raysPP;
+            Screen[i] = pixel / (float)(raysPP);
 
             xor.Dispose();
         }
 
-        // private float3 Trace(Ray3f ray, XorshiftBurst xor, int depth) {
-        //     float3 col = new float3(0, 0, 0);
+        private float3 Trace(Ray3f ray, XorshiftBurst xor, int depth, int maxDepth) {
+            float3 col = new float3(0, 0, 0);
 
-        //     if (depth >= 4) {
-        //         return col;
-        //     }
+            if (depth >= maxDepth) {
+                return col;
+            }
 
-        //     HitRecord hit;
-        //     bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hit);
+            HitRecord hit;
+            bool hitAnything = HitTest.Scene(Scene, ray, tMin, tMax, out hit);
 
-        //     if (hitAnything) {
-        //         ray.origin = hit.p + hit.normal * (1f + eps);
-        //         ray.direction = (hit.p + hit.normal + Fibs[xor.NextInt(0, Fibs.Length - 1)]) - hit.p;
+            if (hitAnything) {
+                ray.origin = hit.p + hit.normal * eps;
+                ray.direction = hit.normal + Fibs[xor.NextInt(0, Fibs.Length - 1)];
+                col = Trace(ray, xor, depth++, maxDepth);
+            } else {
+                col = Scene.LightColor;
+            }
 
-        //         col = Trace(ray, xor, depth++);
-        //         col = Shade(hit, Scene.LightDir, col);
-        //     } else {
-        //         col += Scene.LightColor;
-        //     }
+            col = col * GetAlbedo(hit.material);
 
-        //     return col;
-        // }
+            return col;
+        }
     }
 
-    
-
-    private static float3 Shade(HitRecord hit, float3 lightDir, float3 light) {
+    /* 
+    Note: At first I thought you can help this process along by including dot(normal, light), dot(normal, view)
+    but it seems easier to just let light filter by albedo and do everything else by more rays and more bouncing
+    */
+    private static float3 GetAlbedo(int material) {
         float3 albedo;
-        switch (hit.material) {
+        switch (material) {
             case 0:
                 albedo = new float3(0.7f, 0.5f, 0.97f);
                 break;
             case 1:
-                albedo = new float3(0.2f, 1f, 0.9f);
+                albedo = new float3(0.2f, 1f, 0.55f);
                 break;
             case 2:
                 albedo = new float3(0.9f, 0.1f, 0.1f);
@@ -234,10 +216,7 @@ public class WeekendTracer : MonoBehaviour {
                 albedo = new float3(1f, 1f, 1f);
                 break;
         }
-
-        float ndotl = math.max(0f, -math.dot(hit.normal, lightDir));
-
-        return (albedo * light) * ndotl;
+        return albedo;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -279,7 +258,7 @@ public class WeekendTracer : MonoBehaviour {
         tex.Apply();
     }
 
-    private static void SphericalFib(NativeArray<float3> output) {
+    private static void GenerateFibonacciSphere(NativeArray<float3> output) {
         float n = output.Length / 2.0f;
         float pi = Mathf.PI;
         float dphi = pi * (3.0f - math.sqrt(5.0f));
