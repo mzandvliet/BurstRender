@@ -10,10 +10,17 @@ using System.Runtime.CompilerServices;
 /* 
 Todo:
 
+- Material configurable per object. Diffuse and metal.
+- Make it easier to configure render properties. num rays pp, resolution, etc.
+
 - Fix "Internal: JobTempAlloc has allocations that are more than 4 frames old - this is not allowed and likely a leak"
+- Find a nicer way to stop jobs in progress in case you want to abort a render. It's messes up the editor now.
+- Fix albedo colors messing with light it shouldn't. Ray flying up into sky should just return sky color.
 - Show incremental results
 - Experiment with different ways to generate rays
 - This way getting from a Burst-style screenbuffer to a cpu-texture to a gpu render is dumb
+
+- Ray termination time is wildly divergent. You need to make that constant-ish. There are multiple ways.
 
 Now that we've done this we can compare some aspects of this style of tracing to distance fields
 - Without any culling or sorting, each ray here has to be prepared to intersect with all possible
@@ -80,13 +87,13 @@ public class WeekendTracer : MonoBehaviour {
     private static Scene MakeScene() {
         var scene = new Scene();
 
-        scene.LightDir = math.normalize(new float3(-0.5f, -1, 0));
+        scene.LightDir = math.normalize(new float3(-2f, -1, -0.33f));
         scene.LightColor = new float3(0.5f, 0.7f, 1f);
 
         Random.InitState(1234);
 
         scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        System.Random rand = new System.Random(13345);
+        System.Random rand = new System.Random(13245);
         for (int i = 0; i < scene.Spheres.Length; i++) {
             scene.Spheres[i] = new Sphere(new float3(
                 -2f + 4f * Random.value,
@@ -133,8 +140,8 @@ public class WeekendTracer : MonoBehaviour {
         _watch = System.Diagnostics.Stopwatch.StartNew();
 
         _renderHandle = new JobHandle();
-        _renderHandle = _clear.Schedule(_screen.Length, 32, _renderHandle.Value);
-        _renderHandle = _trace.Schedule(_screen.Length, 32, _renderHandle.Value);
+        _renderHandle = _clear.Schedule(_screen.Length, 4, _renderHandle.Value);
+        _renderHandle = _trace.Schedule(_screen.Length, 4, _renderHandle.Value);
     }
 
     private void CompleteRender() {
@@ -166,8 +173,8 @@ public class WeekendTracer : MonoBehaviour {
 
         const float tMin = 0f;
         const float tMax = 100f;
-        const int raysPP = 1024;
-        const int recursionsPR = 8;
+        const int raysPP = 512;
+        const int recursionsPR = 16;
         
 
         public void Execute(int i) {
@@ -193,49 +200,55 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private static float3 Trace(ref Ray3f ray, ref Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth) {
-        float3 col = new float3(0, 0, 0);
+        HitRecord  hit;
 
         if (depth >= maxDepth) {
-            return col;
+            hit = new HitRecord();
+            return new float3(0);
         }
 
         const float tMin = 0f;
         const float tMax = 1000f;
         const float eps = 0.0001f;
 
-        HitRecord hit;
-        bool hitAnything = HitTest.Scene(scene, ray, tMin, tMax, out hit);
+        bool hitSomething = HitTest.Scene(scene, ray, tMin, tMax, out hit);
 
-        if (hitAnything) {
-            ray.origin = hit.p + hit.normal * eps;
-            ray.direction = hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)];
-            col = Trace(ref ray, ref scene, ref xor, fibs, depth++, maxDepth);
+        float3 light;
+
+        if (hitSomething) {
+            // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
+
+            Ray3f subRay;
+            if (hit.material == 2) {
+                subRay = new Ray3f(hit.p + hit.normal * eps, Reflect(ray.direction, hit.normal));
+            } else {
+                subRay = new Ray3f(hit.p + hit.normal * eps, hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)]);
+            }
+            light = Trace(ref subRay, ref scene, ref xor, fibs, depth++, maxDepth);
+            light = light * GetAlbedo(hit.material);
         } else {
+            // We see sunlight
             var normedDir = math.normalize(ray.direction);
             float t = 0.5f * (normedDir.y + 1f);
-            col = (1f - t) * new float3(1f) + t * scene.LightColor;
+            light = (1f - t) * new float3(1f) + t * scene.LightColor;
         }
 
-        col = col * GetAlbedo(hit.material);
+        // Todo: When we see, we could return terminate=true;
 
-        return col;
+        return light;
     }
 
-    /* 
-    Note: At first I thought you can help this process along by including dot(normal, light), dot(normal, view)
-    but it seems easier to just let light filter by albedo and do everything else by more rays and more bouncing
-    */
     private static float3 GetAlbedo(int material) {
         float3 albedo;
         switch (material) {
             case 0:
-                albedo = new float3(0.4f, 0.2f, 0.7f);
+                albedo = new float3(0.8f, 0.1f, 0.05f); 
                 break;
             case 1:
-                albedo = new float3(0.2f, 1f, 0.55f);
+                albedo = new float3(0.2f, 0.66f, 0.55f);
                 break;
             case 2:
-                albedo = new float3(0.6f, 0.1f, 0.1f);
+                albedo = new float3(0.8f, 0.9f, 0.85f);
                 break;
             default:
                 albedo = new float3(.3f);
@@ -259,6 +272,11 @@ public class WeekendTracer : MonoBehaviour {
             cam.lowerLeft +
             cam.hori * screenPos.x +
             cam.vert * screenPos.y);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float3 Reflect(float3 v, float3 n) {
+        return v - (2f * math.dot(v, n)) * n;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
