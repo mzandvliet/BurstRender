@@ -93,14 +93,15 @@ public class WeekendTracer : MonoBehaviour {
         Random.InitState(1234);
 
         scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        System.Random rand = new System.Random(13245);
+        System.Random rand = new System.Random(13249);
         for (int i = 0; i < scene.Spheres.Length; i++) {
             var pos = new float3(
-                -2f + 4f * Random.value,
+                -3f + 6f * Random.value,
                  -1f + 2f * Random.value,
                  1.5f + 5f * Random.value);
             var rad = 0.1f + Random.value * 0.9f;
-            var mat = new Material(MaterialType.Metal, new float3(Random.value, Random.value, Random.value));
+            var mat = new Material(MaterialType.Metal, new float3(0.5f) + 0.5f * new float3(Random.value, Random.value, Random.value));
+            mat.Fuzz = math.pow(Random.value * 0.6f, 2f);
             scene.Spheres[i] = new Sphere(pos, rad, mat);
         }
 
@@ -183,8 +184,8 @@ public class WeekendTracer : MonoBehaviour {
 
         const float tMin = 0f;
         const float tMax = 100f;
-        const int raysPP = 512;
-        const int recursionsPR = 16;
+        const int raysPP = 1024;
+        const int recursionsPR = 32;
         
 
         public void Execute(int i) {
@@ -230,7 +231,8 @@ public class WeekendTracer : MonoBehaviour {
 
             Ray3f subRay;
             if (hit.material.Type == MaterialType.Metal) {
-                subRay = new Ray3f(hit.p + hit.normal * eps, Reflect(ray.direction, hit.normal));
+                float3 reflectScatter = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
+                subRay = new Ray3f(hit.p + hit.normal * eps, Reflect(ray.direction, hit.normal) + reflectScatter);
             } else {
                 subRay = new Ray3f(hit.p + hit.normal * eps, hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)]);
             }
@@ -361,10 +363,12 @@ public class WeekendTracer : MonoBehaviour {
     private struct Material {
         public MaterialType Type;
         public float3 Albedo;
+        public float Fuzz;
 
         public Material(MaterialType type, float3 albedo) {
             Type = type;
             Albedo = albedo;
+            Fuzz = 0f;
         }
     }
 
