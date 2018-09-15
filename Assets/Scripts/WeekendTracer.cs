@@ -95,18 +95,28 @@ public class WeekendTracer : MonoBehaviour {
         scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         System.Random rand = new System.Random(13245);
         for (int i = 0; i < scene.Spheres.Length; i++) {
-            scene.Spheres[i] = new Sphere(new float3(
+            var pos = new float3(
                 -2f + 4f * Random.value,
                  -1f + 2f * Random.value,
-                 1.5f + 5f * Random.value),
-                0.1f + Random.value * 0.9f);
+                 1.5f + 5f * Random.value);
+            var rad = 0.1f + Random.value * 0.9f;
+            var mat = new Material(MaterialType.Metal, new float3(Random.value, Random.value, Random.value));
+            scene.Spheres[i] = new Sphere(pos, rad, mat);
         }
 
         scene.Planes = new NativeArray<Plane>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        scene.Planes[0] = new Plane(new float3(0f, -1, 0f), new float3(0f, 1f, 0f));
+        scene.Planes[0] = new Plane(
+            new float3(0f, -1, 0f),
+            new float3(0f, 1f, 0f),
+            new Material(MaterialType.Diffuse, new float3(Random.value, Random.value, Random.value)));
 
+        // Todo: Putting material in shape, and using recursive shapes (disk = planeXcircle) results in redundant material information
+        var diskMat = new Material(MaterialType.Metal, new float3(Random.value, Random.value, Random.value));
         scene.Disks = new NativeArray<Disk>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        scene.Disks[0] = new Disk(new Plane(new float3(5f, 1f, 5f), math.normalize(new float3(0f, 1f, -1))), 5f);
+        scene.Disks[0] = new Disk(
+            new Plane(new float3(5f, 1f, 5f), math.normalize(new float3(0f, 1f, -1)), diskMat),
+            5f,
+            diskMat);
 
         return scene;
     }
@@ -219,13 +229,13 @@ public class WeekendTracer : MonoBehaviour {
             // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
 
             Ray3f subRay;
-            if (hit.material == 2) {
+            if (hit.material.Type == MaterialType.Metal) {
                 subRay = new Ray3f(hit.p + hit.normal * eps, Reflect(ray.direction, hit.normal));
             } else {
                 subRay = new Ray3f(hit.p + hit.normal * eps, hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)]);
             }
             light = Trace(ref subRay, ref scene, ref xor, fibs, depth++, maxDepth);
-            light = light * GetAlbedo(hit.material);
+            light = light * hit.material.Albedo;
         } else {
             // We see sunlight
             var normedDir = math.normalize(ray.direction);
@@ -236,25 +246,6 @@ public class WeekendTracer : MonoBehaviour {
         // Todo: When we see, we could return terminate=true;
 
         return light;
-    }
-
-    private static float3 GetAlbedo(int material) {
-        float3 albedo;
-        switch (material) {
-            case 0:
-                albedo = new float3(0.8f, 0.1f, 0.05f); 
-                break;
-            case 1:
-                albedo = new float3(0.2f, 0.66f, 0.55f);
-                break;
-            case 2:
-                albedo = new float3(0.8f, 0.9f, 0.85f);
-                break;
-            default:
-                albedo = new float3(.3f);
-                break;
-        }
-        return albedo;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -346,7 +337,7 @@ public class WeekendTracer : MonoBehaviour {
         public float t;
         public float3 p;
         public float3 normal;
-        public int material;
+        public Material material;
     }
 
     private struct Scene : System.IDisposable {
@@ -363,33 +354,53 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
+    private enum MaterialType : byte {
+        Diffuse = 0,
+        Metal = 1
+    }
+    private struct Material {
+        public MaterialType Type;
+        public float3 Albedo;
+
+        public Material(MaterialType type, float3 albedo) {
+            Type = type;
+            Albedo = albedo;
+        }
+    }
+
     private struct Sphere {
         public float3 Center;
         public float Radius;
+        public Material Material; // Todo: Don't store material here
 
-        public Sphere(float3 center, float radius) {
+        public Sphere(float3 center, float radius, Material material) {
             Center = center;
             Radius = radius;
+            Material = material;
         }
     }
 
     private struct Plane {
         public float3 Center;
         public float3 Normal;
+        public Material Material; // Todo: Don't store material here
 
-        public Plane(float3 center, float3 normal) {
+        public Plane(float3 center, float3 normal, Material material) {
             Center = center;
             Normal = normal;
+            Material = material;
         }
     }
 
     private struct Disk {
         public Plane Plane;
         public float Radius;
+        public Material Material; // Todo: Don't store material here
 
-        public Disk(Plane plane, float radius) {
+        public Disk(Plane plane, float radius, Material material) {
             Plane = plane;
             Radius = radius;
+            Material = material;
         }
     }
 
@@ -412,7 +423,7 @@ public class WeekendTracer : MonoBehaviour {
             for (int i = 0; i < s.Planes.Length; i++) {
                 if (HitTest.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
                     if (hit.t < closestT) {
-                        hit.material = 0;
+                        hit.material = s.Planes[i].Material;
                         hitAnything = true;
                         closestHit = hit;
                         closestT = hit.t;
@@ -424,7 +435,7 @@ public class WeekendTracer : MonoBehaviour {
             for (int i = 0; i < s.Disks.Length; i++) {
                 if (HitTest.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
                     if (hit.t < closestT) {
-                        hit.material = 1;
+                        hit.material = s.Disks[i].Material;
                         hitAnything = true;
                         closestHit = hit;
                         closestT = hit.t;
@@ -436,7 +447,7 @@ public class WeekendTracer : MonoBehaviour {
             for (int i = 0; i < s.Spheres.Length; i++) {
                 if (HitTest.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
                     if (hit.t < closestT) {
-                        hit.material = 2;
+                        hit.material = s.Spheres[i].Material;
                         hitAnything = true;
                         closestHit = hit;
                         closestT = hit.t;
