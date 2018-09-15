@@ -12,6 +12,7 @@ Todo:
 
 - Material configurable per object. Diffuse and metal.
 - Make it easier to configure render properties. num rays pp, resolution, etc.
+- Investigate editor performance (slow on first render, fast on next)
 
 - Fix "Internal: JobTempAlloc has allocations that are more than 4 frames old - this is not allowed and likely a leak"
 - Find a nicer way to stop jobs in progress in case you want to abort a render. It's messes up the editor now.
@@ -49,7 +50,7 @@ public class WeekendTracer : MonoBehaviour {
     private TraceJob _trace;
 
     private CameraInfo _camInfo = new CameraInfo(
-        new int2(1024, 512) * 2,
+        new int2(1024, 512),
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
         new float3(0f, 2f, 0f));
@@ -100,7 +101,8 @@ public class WeekendTracer : MonoBehaviour {
                  -1f + 2f * Random.value,
                  1.5f + 5f * Random.value);
             var rad = 0.1f + Random.value * 0.9f;
-            var mat = new Material(MaterialType.Metal, new float3(0.5f) + 0.5f * new float3(Random.value, Random.value, Random.value));
+            var matType = (MaterialType)Random.Range(0, 2); // Note: max exclusive
+            var mat = new Material(matType, new float3(0.5f) + 0.5f * new float3(Random.value, Random.value, Random.value));
             mat.Fuzz = math.pow(Random.value * 0.6f, 2f);
             scene.Spheres[i] = new Sphere(pos, rad, mat);
         }
@@ -184,13 +186,16 @@ public class WeekendTracer : MonoBehaviour {
 
         const float tMin = 0f;
         const float tMax = 100f;
-        const int raysPP = 1024;
-        const int recursionsPR = 32;
+        const int raysPP = 4;
+        const int recursionsPR = 4;
         
 
         public void Execute(int i) {
-            // Todo: test xorshift thoroughly. First few iterations can still be very correlated
+            /* Todo: test xorshift thoroughly. First few iterations can still be very correlated
+               so I warm it up n times for now. */
             var xor = new XorshiftBurst(i * 3215, i * 502, i * 1090, i * 8513);
+            xor.Next();
+            xor.Next();
             xor.Next();
             xor.Next();
             xor.Next();
@@ -203,14 +208,14 @@ public class WeekendTracer : MonoBehaviour {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
-                pixel += Trace(ref ray, ref Scene, ref xor, Fibs, 0, recursionsPR);
+                pixel += Trace(ray, Scene, ref xor, Fibs, 0, recursionsPR);
             }
 
             Screen[i] = pixel / (float)(raysPP);
         }
     }
 
-    private static float3 Trace(ref Ray3f ray, ref Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth) {
+    private static float3 Trace(Ray3f ray, Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth) {
         HitRecord  hit;
 
         if (depth >= maxDepth) {
@@ -220,7 +225,6 @@ public class WeekendTracer : MonoBehaviour {
 
         const float tMin = 0f;
         const float tMax = 1000f;
-        const float eps = 0.0001f;
 
         bool hitSomething = HitTest.Scene(scene, ray, tMin, tMax, out hit);
 
@@ -229,26 +233,38 @@ public class WeekendTracer : MonoBehaviour {
         if (hitSomething) {
             // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
 
-            Ray3f subRay;
-            if (hit.material.Type == MaterialType.Metal) {
-                float3 reflectScatter = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
-                subRay = new Ray3f(hit.p + hit.normal * eps, Reflect(ray.direction, hit.normal) + reflectScatter);
-            } else {
-                subRay = new Ray3f(hit.p + hit.normal * eps, hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)]);
-            }
-            light = Trace(ref subRay, ref scene, ref xor, fibs, depth++, maxDepth);
+            Ray3f subRay = Scatter(ray, hit, ref xor, fibs);
+            light = Trace(subRay, scene, ref xor, fibs, depth++, maxDepth);
             light = light * hit.material.Albedo;
         } else {
             // We see sunlight
+
             var normedDir = math.normalize(ray.direction);
             float t = 0.5f * (normedDir.y + 1f);
             light = (1f - t) * new float3(1f) + t * scene.LightColor;
         }
 
-        // Todo: When we see, we could return terminate=true;
-
         return light;
     }
+
+    // Note: not passing by ref here causes huge errors
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Ray3f Scatter(Ray3f ray, HitRecord hit, ref XorshiftBurst xor, NativeArray<float3> fibs) {
+        const float eps = 0.0001f;
+
+        switch(hit.material.Type) {
+            case MaterialType.Metal:
+                // Todo: fuzz of const radius is addded to ray.Direction, which is of arbitrary length. 
+                // Small rays will thus get scattered more than large ones. Right or wrong?
+                float3 reflection = Reflect(ray.direction, hit.normal);
+                float3 fuzz = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
+                return new Ray3f(hit.p + hit.normal * eps, reflection + fuzz);
+            case MaterialType.Diffuse:
+            default:
+                return new Ray3f(hit.p + hit.normal * eps, hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)]);
+        }
+    }
+
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float2 ToXY(int screenIdx, CameraInfo cam) {
