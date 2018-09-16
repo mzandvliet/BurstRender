@@ -77,7 +77,7 @@ public class BoidPositionSystem : JobComponentSystem {
         var mj = new MovementJob() {
             dt = 0.01f,
         };
-        var h = mj.Schedule(this, 64, inputDeps);
+        var h = mj.Schedule(this, inputDeps);
         return h;
     }
 }

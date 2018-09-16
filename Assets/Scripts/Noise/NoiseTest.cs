@@ -18,6 +18,8 @@ public class NoiseTest : MonoBehaviour {
         }
     }
 
+    // Todo: Unity.Mathematics.Random was just introduced
+
     private void Profile() {
         _tex = new Texture2D(res, res, TextureFormat.ARGB32, false, true);
         var data = new Color[res * res];
@@ -35,7 +37,7 @@ public class NoiseTest : MonoBehaviour {
         // 171ms, 40ms
         sw = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < values.Length; i++) {
-            values[i] = Random.value;
+            values[i] = UnityEngine.Random.value;
         }
         sw.Stop();
         Debug.Log("Unity.Random.value: " + sw.ElapsedMilliseconds);

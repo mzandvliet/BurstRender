@@ -28,7 +28,7 @@ public class ManySpheres : MonoBehaviour {
 
         _spheres = new NativeArray<float3>(_numSpheres, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         for (int i = 0; i < _numSpheres; i++) {
-            _spheres[i] = Random.insideUnitSphere * 400f;
+            _spheres[i] = UnityEngine.Random.insideUnitSphere * 400f;
         }
 
         var indices = new uint[] { 2, 1, 0, 2, 3, 1 }; // { 0, 1, 2, 1, 3, 2 }; reversed
@@ -48,7 +48,7 @@ public class ManySpheres : MonoBehaviour {
     private void Update() {
         var j = new MoveSpheresJob() {
             Spheres = _spheres,
-            Rotor = quaternion.axisAngle(new float3(0, 1, 0), 1f * Time.deltaTime)
+            Rotor = quaternion.AxisAngle(new float3(0, 1, 0), 1f * Time.deltaTime)
         };
         _updateHandle = j.Schedule(_spheres.Length, 64);
     }

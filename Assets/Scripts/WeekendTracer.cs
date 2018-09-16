@@ -10,7 +10,8 @@ using System.Runtime.CompilerServices;
 /* 
 Todo:
 
-- Material configurable per object. Diffuse and metal.
+- Test Unity.Mathematics.Random
+- Dieletrics, transformable camera object for ray generation
 - Make it easier to configure render properties. num rays pp, resolution, etc.
 - Investigate editor performance (slow on first render, fast on next)
 
@@ -50,7 +51,7 @@ public class WeekendTracer : MonoBehaviour {
     private TraceJob _trace;
 
     private CameraInfo _camInfo = new CameraInfo(
-        new int2(1024, 512),
+        new int2(1024, 512) / 2,
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
         new float3(0f, 2f, 0f));
@@ -91,19 +92,19 @@ public class WeekendTracer : MonoBehaviour {
         scene.LightDir = math.normalize(new float3(-2f, -1, -0.33f));
         scene.LightColor = new float3(0.5f, 0.7f, 1f);
 
-        Random.InitState(1234);
+        UnityEngine.Random.InitState(1234);
 
         scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         System.Random rand = new System.Random(13249);
         for (int i = 0; i < scene.Spheres.Length; i++) {
             var pos = new float3(
-                -3f + 6f * Random.value,
-                 -1f + 2f * Random.value,
-                 1.5f + 5f * Random.value);
-            var rad = 0.1f + Random.value * 0.9f;
-            var matType = (MaterialType)Random.Range(0, 2); // Note: max exclusive
-            var mat = new Material(matType, new float3(0.5f) + 0.5f * new float3(Random.value, Random.value, Random.value));
-            mat.Fuzz = math.pow(Random.value * 0.6f, 2f);
+                -3f + 6f * UnityEngine.Random.value,
+                 -1f + 2f * UnityEngine.Random.value,
+                 1.5f + 5f * UnityEngine.Random.value);
+            var rad = 0.1f + UnityEngine.Random.value * 0.9f;
+            var matType = (MaterialType)UnityEngine.Random.Range(0, 3); // Note: is max exclusive
+            var mat = new Material(matType, new float3(0.5f) + 0.5f * new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
+            mat.Fuzz = math.pow(UnityEngine.Random.value * 0.6f, 2f);
             scene.Spheres[i] = new Sphere(pos, rad, mat);
         }
 
@@ -111,10 +112,10 @@ public class WeekendTracer : MonoBehaviour {
         scene.Planes[0] = new Plane(
             new float3(0f, -1, 0f),
             new float3(0f, 1f, 0f),
-            new Material(MaterialType.Diffuse, new float3(Random.value, Random.value, Random.value)));
+            new Material(MaterialType.Diffuse, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value)));
 
         // Todo: Putting material in shape, and using recursive shapes (disk = planeXcircle) results in redundant material information
-        var diskMat = new Material(MaterialType.Metal, new float3(Random.value, Random.value, Random.value));
+        var diskMat = new Material(MaterialType.Metal, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
         scene.Disks = new NativeArray<Disk>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         scene.Disks[0] = new Disk(
             new Plane(new float3(5f, 1f, 5f), math.normalize(new float3(0f, 1f, -1)), diskMat),
@@ -232,12 +233,13 @@ public class WeekendTracer : MonoBehaviour {
 
         if (hitSomething) {
             // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
+            // Filter it through its material model
 
             Ray3f subRay = Scatter(ray, hit, ref xor, fibs);
             light = Trace(subRay, scene, ref xor, fibs, depth++, maxDepth);
-            light = light * hit.material.Albedo;
+            light = BRDF(hit, light);
         } else {
-            // We see sunlight
+            // We see sunlight, just send that back through the path traversed
 
             var normedDir = math.normalize(ray.direction);
             float t = 0.5f * (normedDir.y + 1f);
@@ -247,24 +249,68 @@ public class WeekendTracer : MonoBehaviour {
         return light;
     }
 
-    // Note: not passing by ref here causes huge errors
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    //[MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Ray3f Scatter(Ray3f ray, HitRecord hit, ref XorshiftBurst xor, NativeArray<float3> fibs) {
         const float eps = 0.0001f;
 
         switch(hit.material.Type) {
+            case MaterialType.Dielectric:
+            {
+                // Todo: refract
+                float3 reflection = Reflect(ray.direction, hit.normal);
+                float3 fuzz = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
+                return new Ray3f(hit.p + hit.normal * eps, reflection + fuzz);
+            }
             case MaterialType.Metal:
+            {
                 // Todo: fuzz of const radius is addded to ray.Direction, which is of arbitrary length. 
                 // Small rays will thus get scattered more than large ones. Right or wrong?
                 float3 reflection = Reflect(ray.direction, hit.normal);
                 float3 fuzz = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
                 return new Ray3f(hit.p + hit.normal * eps, reflection + fuzz);
+            }
             case MaterialType.Diffuse:
             default:
+            {
                 return new Ray3f(hit.p + hit.normal * eps, hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)]);
+            }
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float3 Reflect(float3 v, float3 n) {
+        return v - (2f * math.dot(v, n)) * n;
+    }
+
+    // Todo: derive this
+    // [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool Refract(float3 v, float3 n, float ni_over_nt, out float3 refracted) {
+        float3 uv = math.normalize(v);
+        float dt = math.dot(uv, n);
+        float discriminant = 1f - ni_over_nt * ni_over_nt * (1f - dt * dt);
+
+        if (discriminant > 0f) {
+            refracted = ni_over_nt * (uv - n*dt) - n * math.sqrt(discriminant);
+            return true;
+        }
+
+        refracted = new float3(0f);
+        return false;
+    }
+
+    // Note: not passing by ref here causes huge errors
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float3 BRDF(HitRecord hit, float3 light) {
+        const float eps = 0.0001f;
+
+        switch (hit.material.Type) {
+            case MaterialType.Metal:
+                return light * hit.material.Albedo;
+            case MaterialType.Diffuse:
+            default:
+                return light * hit.material.Albedo;
+        }
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float2 ToXY(int screenIdx, CameraInfo cam) {
@@ -283,10 +329,7 @@ public class WeekendTracer : MonoBehaviour {
             cam.vert * screenPos.y);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float3 Reflect(float3 v, float3 n) {
-        return v - (2f * math.dot(v, n)) * n;
-    }
+    
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float InterleavedGradientNoise(float2 xy) {
@@ -372,9 +415,10 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
-    private enum MaterialType : byte {
+    private enum MaterialType { // If I make this : byte, switching on it makes burst cry
         Diffuse = 0,
-        Metal = 1
+        Metal = 1,
+        Dielectric = 2
     }
     private struct Material {
         public MaterialType Type;
