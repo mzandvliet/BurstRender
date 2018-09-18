@@ -154,9 +154,9 @@ public class NoiseTest : MonoBehaviour {
     }
 
 
-    private void OnGUI() {
-        GUI.DrawTexture(new Rect(0f, 0f, res, res), _tex);
-    }
+    // private void OnGUI() {
+    //     GUI.DrawTexture(new Rect(0f, 0f, res, res), _tex);
+    // }
 
     [BurstCompile]
     public struct UMathRngJob : IJob {
