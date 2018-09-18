@@ -10,12 +10,15 @@ using System.Runtime.CompilerServices;
 /* 
 Todo:
 
-- Test Unity.Mathematics.Random
+- Fix "Internal: JobTempAlloc has allocations that are more than 4 frames old - this is not allowed and likely a leak"
+Guess: todo with recursive Trace calls
+
+- xor initialization is borked, it's extremely correlated until warmed up some 32 iterations
 - Dieletrics, transformable camera object for ray generation
 - Make it easier to configure render properties. num rays pp, resolution, etc.
 - Investigate editor performance (slow on first render, fast on next)
 
-- Fix "Internal: JobTempAlloc has allocations that are more than 4 frames old - this is not allowed and likely a leak"
+
 - Find a nicer way to stop jobs in progress in case you want to abort a render. It's messes up the editor now.
 - Fix albedo colors messing with light it shouldn't. Ray flying up into sky should just return sky color.
 - Show incremental results
@@ -51,7 +54,7 @@ public class WeekendTracer : MonoBehaviour {
     private TraceJob _trace;
 
     private CameraInfo _camInfo = new CameraInfo(
-        new int2(1024, 512) / 2,
+        new int2(1024, 512) * 2,
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
         new float3(0f, 2f, 0f));
@@ -94,25 +97,26 @@ public class WeekendTracer : MonoBehaviour {
 
         UnityEngine.Random.InitState(1234);
 
-        scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        System.Random rand = new System.Random(13249);
+        scene.Spheres = new NativeArray<Sphere>(8, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         for (int i = 0; i < scene.Spheres.Length; i++) {
             var pos = new float3(
                 -3f + 6f * UnityEngine.Random.value,
                  -1f + 2f * UnityEngine.Random.value,
                  1.5f + 5f * UnityEngine.Random.value);
             var rad = 0.1f + UnityEngine.Random.value * 0.9f;
-            var matType = (MaterialType)UnityEngine.Random.Range(0, 3); // Note: is max exclusive
+            var matType = MaterialType.Metal;
             var mat = new Material(matType, new float3(0.5f) + 0.5f * new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
             mat.Fuzz = math.pow(UnityEngine.Random.value * 0.6f, 2f);
             scene.Spheres[i] = new Sphere(pos, rad, mat);
         }
 
+        var floorMat = new Material(MaterialType.Metal, new float3(1, 1, 1));
+        floorMat.Fuzz = 0.3f;
         scene.Planes = new NativeArray<Plane>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         scene.Planes[0] = new Plane(
             new float3(0f, -1, 0f),
             new float3(0f, 1f, 0f),
-            new Material(MaterialType.Diffuse, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value)));
+            floorMat);
 
         // Todo: Putting material in shape, and using recursive shapes (disk = planeXcircle) results in redundant material information
         var diskMat = new Material(MaterialType.Metal, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
@@ -126,6 +130,18 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void Start() {
+        // Fast dummy render for editor to get burst to warm up, otherwise first render is suuuuper slow.
+        _trace.raysPP = 1;
+        _trace.recursionsPR = 1;
+        _trace.tMin = 0f;
+        _trace.tMax = 1000f;
+        StartRender();
+        _renderHandle.Value.Complete();
+        CompleteRender();
+
+        // Now trace at the quality we want.
+        _trace.raysPP = 4;
+        _trace.recursionsPR = 2;
         StartRender();
     }
 
@@ -185,22 +201,19 @@ public class WeekendTracer : MonoBehaviour {
         [ReadOnly] public NativeArray<float3> Fibs;
         public CameraInfo Cam;
 
-        const float tMin = 0f;
-        const float tMax = 100f;
-        const int raysPP = 4;
-        const int recursionsPR = 4;
+        [ReadOnly] public float tMin;
+        [ReadOnly] public float tMax;
+        [ReadOnly] public int raysPP;
+        [ReadOnly] public int recursionsPR;
         
 
         public void Execute(int i) {
             /* Todo: test xorshift thoroughly. First few iterations can still be very correlated
                so I warm it up n times for now. */
             var xor = new XorshiftBurst(i * 3215, i * 502, i * 1090, i * 8513);
-            xor.Next();
-            xor.Next();
-            xor.Next();
-            xor.Next();
-            xor.Next();
-            xor.Next();
+            for (int w = 0; w < 32; w++) {
+                xor.Next();
+            }
 
             var screenPos = ToXY(i, Cam);
             float3 pixel = new float3(0f);
@@ -209,14 +222,14 @@ public class WeekendTracer : MonoBehaviour {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
-                pixel += Trace(ray, Scene, ref xor, Fibs, 0, recursionsPR);
+                pixel += Trace(ref ray, ref Scene, ref xor, Fibs, 0, recursionsPR);
             }
 
             Screen[i] = pixel / (float)(raysPP);
         }
     }
 
-    private static float3 Trace(Ray3f ray, Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth) {
+    private static float3 Trace(ref Ray3f ray, ref Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth) {
         HitRecord  hit;
 
         if (depth >= maxDepth) {
@@ -229,14 +242,18 @@ public class WeekendTracer : MonoBehaviour {
 
         bool hitSomething = HitTest.Scene(scene, ray, tMin, tMax, out hit);
 
-        float3 light;
+        float3 light = new float3(xor.NextFloat(), xor.NextFloat(), xor.NextFloat());
+
+        if (hitSomething) {
+            light = 0.5f + 0.5f * hit.normal;
+        }
 
         if (hitSomething) {
             // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
             // Filter it through its material model
 
             Ray3f subRay = Scatter(ray, hit, ref xor, fibs);
-            light = Trace(subRay, scene, ref xor, fibs, depth++, maxDepth);
+            light = Trace(ref subRay, ref scene, ref xor, fibs, depth++, maxDepth);
             light = BRDF(hit, light);
         } else {
             // We see sunlight, just send that back through the path traversed
@@ -249,7 +266,6 @@ public class WeekendTracer : MonoBehaviour {
         return light;
     }
 
-    //[MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Ray3f Scatter(Ray3f ray, HitRecord hit, ref XorshiftBurst xor, NativeArray<float3> fibs) {
         const float eps = 0.0001f;
 
@@ -257,15 +273,17 @@ public class WeekendTracer : MonoBehaviour {
             case MaterialType.Dielectric:
             {
                 // Todo: refract
+                // Try to refract. If not possible, reflect.
+                // Need index of refraction from material
+
                 float3 reflection = Reflect(ray.direction, hit.normal);
-                float3 fuzz = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
-                return new Ray3f(hit.p + hit.normal * eps, reflection + fuzz);
+                return new Ray3f(hit.p + hit.normal * eps, reflection);
             }
             case MaterialType.Metal:
             {
                 // Todo: fuzz of const radius is addded to ray.Direction, which is of arbitrary length. 
                 // Small rays will thus get scattered more than large ones. Right or wrong?
-                float3 reflection = Reflect(ray.direction, hit.normal);
+                float3 reflection = Reflect(math.normalize(ray.direction), hit.normal);
                 float3 fuzz = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
                 return new Ray3f(hit.p + hit.normal * eps, reflection + fuzz);
             }
@@ -283,7 +301,6 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     // Todo: derive this
-    // [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Refract(float3 v, float3 n, float ni_over_nt, out float3 refracted) {
         float3 uv = math.normalize(v);
         float dt = math.dot(uv, n);
