@@ -15,14 +15,16 @@ Todo:
 - Make it easier to configure render properties. num rays pp, resolution, etc.
 - Investigate editor performance (slow on first render, fast on next)
 
-- Fix "Internal: JobTempAlloc has allocations that are more than 4 frames old - this is not allowed and likely a leak"
 - Find a nicer way to stop jobs in progress in case you want to abort a render. It's messes up the editor now.
-- Fix albedo colors messing with light it shouldn't. Ray flying up into sky should just return sky color.
+    - Splitting a render into a sequence of smaller jobs would work well
+    - We want an iterative renderer anyway
+    - It will also lessen the appearance of the 4 frame TempAllocator warning
+    - Would probably also stop major cpu/os stalls from happening
 - Show incremental results
-- Experiment with different ways to generate rays
 - This way getting from a Burst-style screenbuffer to a cpu-texture to a gpu render is dumb
+    - Compute buffer could be faster
 
-- Ray termination time is wildly divergent. You need to make that constant-ish. There are multiple ways.
+- Ray termination time is wildly divergent. You need to make that constant-ish. There are many ways.
 
 Now that we've done this we can compare some aspects of this style of tracing to distance fields
 - Without any culling or sorting, each ray here has to be prepared to intersect with all possible
@@ -51,7 +53,7 @@ public class WeekendTracer : MonoBehaviour {
     private TraceJob _trace;
 
     private CameraInfo _camInfo = new CameraInfo(
-        new int2(1024, 512) / 2,
+        new int2(1024, 512),
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
         new float3(0f, 2f, 0f));
@@ -74,6 +76,8 @@ public class WeekendTracer : MonoBehaviour {
         _trace.Fibs = _fibs;
         _trace.Scene = _scene;
         _trace.Cam = _camInfo;
+        _trace.Quality.tMax = 1000f;
+        _trace.Quality.tMin = 0f;
 
         _colors = new Color[_camInfo.resolution.x * _camInfo.resolution.y];
         _tex = new Texture2D(_camInfo.resolution.x, _camInfo.resolution.y, TextureFormat.ARGB32, false, true);
@@ -95,7 +99,6 @@ public class WeekendTracer : MonoBehaviour {
         UnityEngine.Random.InitState(1234);
 
         scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        System.Random rand = new System.Random(13249);
         for (int i = 0; i < scene.Spheres.Length; i++) {
             var pos = new float3(
                 -3f + 6f * UnityEngine.Random.value,
@@ -126,12 +129,20 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void Start() {
+        // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
+        _trace.Quality.RaysPerPixel = 1;
+        _trace.Quality.MaxRecursionDepth = 1;
+        StartRender();
+        CompleteRender();
+
+        // Now do a full-quality render
+        _trace.Quality.RaysPerPixel = 256;
+        _trace.Quality.MaxRecursionDepth = 8;
         StartRender();
     }
 
     private void Update() {
         if (_renderHandle.HasValue && _renderHandle.Value.IsCompleted) {
-            _renderHandle.Value.Complete();
             CompleteRender();
         } else {
             if (Input.GetKeyDown(KeyCode.Space)) {
@@ -159,6 +170,8 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void CompleteRender() {
+        _renderHandle.Value.Complete();
+
         _watch.Stop();
         Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms");
         ToTexture2D(_screen, _colors, _tex, _camInfo);
@@ -178,23 +191,25 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
+    private struct TraceJobQuality {
+        public float tMin;
+        public float tMax;
+        public int RaysPerPixel;
+        public int MaxRecursionDepth;
+    }
+
     [BurstCompile]
     private struct TraceJob : IJobParallelFor {
         [WriteOnly] public NativeArray<float3> Screen;
         [ReadOnly] public Scene Scene;
         [ReadOnly] public NativeArray<float3> Fibs;
-        public CameraInfo Cam;
-
-        const float tMin = 0f;
-        const float tMax = 100f;
-        const int raysPP = 4;
-        const int recursionsPR = 4;
+        [ReadOnly] public CameraInfo Cam;
+        [ReadOnly] public TraceJobQuality Quality;      
         
-
         public void Execute(int i) {
             /* Todo: test xorshift thoroughly. First few iterations can still be very correlated
                so I warm it up n times for now. */
-            var xor = new XorshiftBurst(i * 3215, i * 502, i * 1090, i * 8513);
+            var xor = new XorshiftBurst(i * 2543, i * 12269, i * 19037, i * 26699);
             xor.Next();
             xor.Next();
             xor.Next();
@@ -205,14 +220,14 @@ public class WeekendTracer : MonoBehaviour {
             var screenPos = ToXY(i, Cam);
             float3 pixel = new float3(0f);
 
-            for (int r = 0; r < raysPP; r++) {
+            for (int r = 0; r < Quality.RaysPerPixel; r++) {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
-                pixel += Trace(ray, Scene, ref xor, Fibs, 0, recursionsPR);
+                pixel += Trace(ray, Scene, ref xor, Fibs, 0, Quality.MaxRecursionDepth);
             }
 
-            Screen[i] = pixel / (float)(raysPP);
+            Screen[i] = pixel / (float)(Quality.RaysPerPixel);
         }
     }
 
@@ -301,8 +316,6 @@ public class WeekendTracer : MonoBehaviour {
     // Note: not passing by ref here causes huge errors
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float3 BRDF(HitRecord hit, float3 light) {
-        const float eps = 0.0001f;
-
         switch (hit.material.Type) {
             case MaterialType.Metal:
                 return light * hit.material.Albedo;
@@ -476,8 +489,8 @@ public class WeekendTracer : MonoBehaviour {
     private static class HitTest {
         public static bool Scene(Scene s, Ray3f r, float tMin, float tMax, out HitRecord finalHit) {
             bool hitAnything = false;
-            float closestT = tMax;
             HitRecord closestHit = new HitRecord();
+            closestHit.t = tMax;
 
             // Note: this is the most naive brute force scene intersection you could ever do :P
 
@@ -486,11 +499,10 @@ public class WeekendTracer : MonoBehaviour {
             // Hit planes
             for (int i = 0; i < s.Planes.Length; i++) {
                 if (HitTest.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
+                    if (hit.t < closestHit.t) {
                         hit.material = s.Planes[i].Material;
                         hitAnything = true;
                         closestHit = hit;
-                        closestT = hit.t;
                     }
                 }
             }
@@ -498,11 +510,10 @@ public class WeekendTracer : MonoBehaviour {
             // Hit disks
             for (int i = 0; i < s.Disks.Length; i++) {
                 if (HitTest.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
+                    if (hit.t < closestHit.t) {
                         hit.material = s.Disks[i].Material;
                         hitAnything = true;
                         closestHit = hit;
-                        closestT = hit.t;
                     }
                 }
             }
@@ -510,11 +521,10 @@ public class WeekendTracer : MonoBehaviour {
             // // Hit spheres
             for (int i = 0; i < s.Spheres.Length; i++) {
                 if (HitTest.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestT) {
+                    if (hit.t < closestHit.t) {
                         hit.material = s.Spheres[i].Material;
                         hitAnything = true;
                         closestHit = hit;
-                        closestT = hit.t;
                     }
                 }
             }
@@ -523,12 +533,6 @@ public class WeekendTracer : MonoBehaviour {
 
             return hitAnything;
         }
-
-        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        // public static bool Test(ref Ray3f r, out HitRecord hit) {
-        //     hit = new HitRecord();
-        //     return false;
-        // }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Plane(Plane p, Ray3f r, float tMin, float tMax, out HitRecord hit) {
