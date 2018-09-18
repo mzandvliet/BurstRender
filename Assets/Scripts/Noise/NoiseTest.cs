@@ -27,13 +27,13 @@ public class NoiseTest : MonoBehaviour {
         }
     }
 
-    private void TestXorShiftBurst() {
-        XorshiftBurst xor = new XorshiftBurst(5132512, 3292391, 109854, 587295);
-        for (int i = 0; i < 128; i++) {
-            Debug.Log(xor.NextInt(0, 128));
-            Debug.Log(xor._seed0 + ", " + xor._seed1 + ", " + xor._seed2 + ", " + xor._seed3);
-        }
-    }
+    // private void TestXorShiftBurst() {
+    //     XorshiftBurst xor = new XorshiftBurst(5132512, 3292391, 109854, 587295);
+    //     for (int i = 0; i < 128; i++) {
+    //         Debug.Log(xor.NextInt(0, 128));
+    //         Debug.Log(xor._seed0 + ", " + xor._seed1 + ", " + xor._seed2 + ", " + xor._seed3);
+    //     }
+    // }
 
     private void ProfileRNGs() {
         // Time it takes for many RNG implementations to fill a buffer with random 32 bit floats with distribution [0,1)

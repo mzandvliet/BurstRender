@@ -4,50 +4,67 @@ using Unity.Mathematics;
 
 // https://gist.github.com/firstspring1845/6266769
 
+// [System.Serializable]
+// public struct XorshiftBurst {
+//     public long _seed0;
+//     public long _seed1;
+//     public long _seed2;
+//     public long _seed3;
+
+//     public XorshiftBurst(long seed) {
+//         _seed0 = seed;
+//         _seed1 = seed;
+//         _seed2 = seed;
+//         _seed3 = seed;
+//     }
+
+//     public XorshiftBurst(long seed0, long seed1, long seed2, long seed3) {
+//         _seed0 = seed0;
+//         _seed1 = seed1;
+//         _seed2 = seed2;
+//         _seed3 = seed3;
+//     }
+
+//     public long Next() {
+//         long t = _seed0 ^ (_seed0 << 11);
+//         _seed0 = _seed1;
+//         _seed1 = _seed2;
+//         _seed2 = _seed3;
+//         _seed3 = (_seed3 ^ (_seed3 >> 19)) ^ (t ^ (t >> 8));
+//         return _seed3;
+//     }
+
+//     public int NextInt() {
+//         return (int)Next();
+//     }
+
+//     public int NextInt(int min, int max) {
+//         return min + math.abs(NextInt()) / (int.MaxValue / max);
+//     }
+
+//     public float NextFloat() {
+//         return (float)Next() / long.MaxValue;
+//     }
+
+//     public double NextDouble() {
+//         return (double)Next() / long.MaxValue;
+//     }
+// }
+
 [System.Serializable]
 public struct XorshiftBurst {
-    public long _seed0;
-    public long _seed1;
-    public long _seed2;
-    public long _seed3;
+    private int _seed;
 
-    public XorshiftBurst(long seed) {
-        _seed0 = seed;
-        _seed1 = seed;
-        _seed2 = seed;
-        _seed3 = seed;
-    }
-
-    public XorshiftBurst(long seed0, long seed1, long seed2, long seed3) {
-        _seed0 = seed0;
-        _seed1 = seed1;
-        _seed2 = seed2;
-        _seed3 = seed3;
-    }
-
-    public long Next() {
-        long t = _seed0 ^ (_seed0 << 11);
-        _seed0 = _seed1;
-        _seed1 = _seed2;
-        _seed2 = _seed3;
-        _seed3 = (_seed3 ^ (_seed3 >> 19)) ^ (t ^ (t >> 8));
-        return _seed3;
-    }
-
-    public int NextInt() {
-        return (int)Next();
+    public XorshiftBurst(int seed) {
+        _seed = seed;
     }
 
     public int NextInt(int min, int max) {
-        return min + math.abs(NextInt()) / (int.MaxValue / max);
+        return 0;
     }
 
     public float NextFloat() {
-        return (float)Next() / long.MaxValue;
-    }
-
-    public double NextDouble() {
-        return (double)Next() / long.MaxValue;
+        return 0f;
     }
 }
 
