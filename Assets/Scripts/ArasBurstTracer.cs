@@ -354,7 +354,7 @@ namespace Aras {
         }
 
 
-        public void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, NativeArray<UnityEngine.Color> backbuffer, out int outRayCount) {
+        public void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, NativeArray<UnityEngine.Color> backbuffer) {
             int rayCount = 0;
 #if DO_ANIMATE
         s_SpheresData[1].center.y = cos(time)+1.0f;
@@ -370,7 +370,6 @@ namespace Aras {
 
             Camera cam = new Camera(lookfrom, lookat, new float3(0, 1, 0), 60, (float)screenWidth / (float)screenHeight, aperture, distToFocus);
 
-// #if DO_THREADED
             TraceRowJob job;
             job.screenWidth = screenWidth;
             job.screenHeight = screenHeight;
@@ -380,17 +379,20 @@ namespace Aras {
             job.rayCounter = new NativeArray<int>(1, Allocator.Temp);
             job.spheres = new NativeArray<Sphere>(s_SpheresData, Allocator.Temp);
             job.materials = new NativeArray<Material>(s_SphereMatsData, Allocator.Temp);
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
             var fence = job.Schedule(screenHeight, 4);
             fence.Complete();
             rayCount = job.rayCounter[0];
+
+            watch.Stop();
+            Debug.Log("Done! Time taken: " + watch.ElapsedMilliseconds + "ms, Num Rays: " + rayCount);
+            Debug.Log("That's about " + (rayCount / (watch.ElapsedMilliseconds/1000.0d)) / 1000000.0d + " MRay/sec");
+
             job.rayCounter.Dispose();
             job.spheres.Dispose();
             job.materials.Dispose();
-// #else
-//         for (int y = 0; y < screenHeight; ++y)
-//             rayCount += TraceRowJob(y, screenWidth, screenHeight, frameCount, backbuffer, ref cam);
-// #endif
-            outRayCount = rayCount;
         }
     }
 }
@@ -400,17 +402,14 @@ public class ArasBurstTracer : MonoBehaviour {
     private Texture2D _tex;
 
     public void Awake() {
-        int resX = 2048;
-        int resY = 512;
+        Test(1,1); // I broke it :(
+    }
 
+    private void Test(int resX, int resY) {
         var buf = new NativeArray<Color>(resX * resY, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
         var test = new Aras.Test();
-        int rayCount;
-        test.DrawTest(0f, 1, resX, resY, buf, out rayCount);
-        UnityEngine.Debug.Log(rayCount);
 
-        test.DrawTest(0f, 1, resX, resY, buf, out rayCount);
-        UnityEngine.Debug.Log(rayCount);
+        test.DrawTest(0f, 1, resX, resY, buf);
 
         _colors = new Color[resX * resY];
         _tex = new Texture2D(resX, resY, TextureFormat.ARGB32, false, true);

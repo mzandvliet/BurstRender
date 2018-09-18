@@ -78,6 +78,7 @@ public class WeekendTracer : MonoBehaviour {
         _trace.Cam = _camInfo;
         _trace.Quality.tMax = 1000f;
         _trace.Quality.tMin = 0f;
+        _trace.RayCounter = new NativeArray<ulong>(1, Allocator.Persistent, NativeArrayOptions.ClearMemory);
 
         _colors = new Color[_camInfo.resolution.x * _camInfo.resolution.y];
         _tex = new Texture2D(_camInfo.resolution.x, _camInfo.resolution.y, TextureFormat.ARGB32, false, true);
@@ -88,6 +89,7 @@ public class WeekendTracer : MonoBehaviour {
         _screen.Dispose();
         _scene.Dispose();
         _fibs.Dispose();
+        _trace.RayCounter.Dispose();
     }
 
     private static Scene MakeScene() {
@@ -164,6 +166,8 @@ public class WeekendTracer : MonoBehaviour {
 
         _watch = System.Diagnostics.Stopwatch.StartNew();
 
+        _trace.RayCounter[0] = 0;
+
         _renderHandle = new JobHandle();
         _renderHandle = _clear.Schedule(_screen.Length, 4, _renderHandle.Value);
         _renderHandle = _trace.Schedule(_screen.Length, 4, _renderHandle.Value);
@@ -173,7 +177,8 @@ public class WeekendTracer : MonoBehaviour {
         _renderHandle.Value.Complete();
 
         _watch.Stop();
-        Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms");
+        Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms, Num Rays: " + _trace.RayCounter[0]);
+        Debug.Log("That's about " + (_trace.RayCounter[0] / (_watch.ElapsedMilliseconds / 1000.0d)) / 1000000.0d + " MRay/sec");
         ToTexture2D(_screen, _colors, _tex, _camInfo);
         _renderHandle = null;
     }
@@ -204,7 +209,9 @@ public class WeekendTracer : MonoBehaviour {
         [ReadOnly] public Scene Scene;
         [ReadOnly] public NativeArray<float3> Fibs;
         [ReadOnly] public CameraInfo Cam;
-        [ReadOnly] public TraceJobQuality Quality;      
+        [ReadOnly] public TraceJobQuality Quality;
+
+        [NativeDisableParallelForRestriction] public NativeArray<ulong> RayCounter;
         
         public void Execute(int i) {
             /* Todo: test xorshift thoroughly. First few iterations can still be very correlated
@@ -217,18 +224,22 @@ public class WeekendTracer : MonoBehaviour {
             var screenPos = ToXY(i, Cam);
             float3 pixel = new float3(0f);
 
+            ulong rayCount = 0;
+
             for (int r = 0; r < Quality.RaysPerPixel; r++) {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
-                pixel += Trace(ray, Scene, ref xor, Fibs, 0, Quality.MaxRecursionDepth);
+                pixel += Trace(ray, Scene, ref xor, Fibs, 0, Quality.MaxRecursionDepth, ref rayCount);
             }
 
             Screen[i] = pixel / (float)(Quality.RaysPerPixel);
+
+            RayCounter[0] += rayCount; // Todo: atomics, or rather, fix the amount of rays per job run
         }
     }
 
-    private static float3 Trace(Ray3f ray, Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth) {
+    private static float3 Trace(Ray3f ray, Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth, ref ulong rayCount) {
         HitRecord  hit;
 
         if (depth >= maxDepth) {
@@ -240,6 +251,7 @@ public class WeekendTracer : MonoBehaviour {
         const float tMax = 1000f;
 
         bool hitSomething = HitTest.Scene(scene, ray, tMin, tMax, out hit);
+        ++rayCount;
 
         float3 light;
 
@@ -248,7 +260,7 @@ public class WeekendTracer : MonoBehaviour {
             // Filter it through its material model
 
             Ray3f subRay = Scatter(ray, hit, ref xor, fibs);
-            light = Trace(subRay, scene, ref xor, fibs, depth++, maxDepth);
+            light = Trace(subRay, scene, ref xor, fibs, depth++, maxDepth, ref rayCount);
             light = BRDF(hit, light);
         } else {
             // We see sunlight, just send that back through the path traversed
