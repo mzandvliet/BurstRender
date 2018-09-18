@@ -136,7 +136,7 @@ public class WeekendTracer : MonoBehaviour {
         CompleteRender();
 
         // Now do a full-quality render
-        _trace.Quality.RaysPerPixel = 256;
+        _trace.Quality.RaysPerPixel = 64;
         _trace.Quality.MaxRecursionDepth = 8;
         StartRender();
     }
@@ -210,9 +210,6 @@ public class WeekendTracer : MonoBehaviour {
             /* Todo: test xorshift thoroughly. First few iterations can still be very correlated
                so I warm it up n times for now. */
             var xor = new XorshiftBurst(i * 2543, i * 12269, i * 19037, i * 26699);
-            xor.Next();
-            xor.Next();
-            xor.Next();
             xor.Next();
             xor.Next();
             xor.Next();
@@ -340,15 +337,6 @@ public class WeekendTracer : MonoBehaviour {
             cam.lowerLeft +
             cam.hori * screenPos.x +
             cam.vert * screenPos.y);
-    }
-
-    
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float InterleavedGradientNoise(float2 xy) {
-        return math.frac(52.9829189f
-                    * math.frac(xy.x * 0.06711056f
-                            + xy.y * 0.00583715f));
     }
 
     private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex, CameraInfo cam) {
