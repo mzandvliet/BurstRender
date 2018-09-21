@@ -10,6 +10,11 @@ using System.Runtime.CompilerServices;
 /* 
 Todo:
 
+!! Whenever we make a ray, its direction needs to be unit length. Otherwise PointOnRay fucks up.
+
+Ray geometry debug visualizer (show ray paths by reusing existing trace funcs)
+Performance varies wildly for small variations in scene. Sometimes 70MRay/sec, sometimes 10. Egalize.
+
 - Test Unity.Mathematics.Random
 - Dieletrics, transformable camera object for ray generation
 - Make it easier to configure render properties. num rays pp, resolution, etc.
@@ -34,6 +39,7 @@ goes up as n objects and r bounces happen.
 objects and many rays, it starts winning.
 
 So, to optimize there's a couple of things we should try to do:
+- Don't use ad-hoc functional recursion
 - Cull objects, or otherwise limit the amount of objects a ray has to computationally interact with
 - Limit super-sampling for parts of the image that need it.
 - When generating random numbers, think carefully how many bits of entropy you need
@@ -100,32 +106,25 @@ public class WeekendTracer : MonoBehaviour {
 
         UnityEngine.Random.InitState(1234);
 
-        scene.Spheres = new NativeArray<Sphere>(16, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        for (int i = 0; i < scene.Spheres.Length; i++) {
-            var pos = new float3(
-                -3f + 6f * UnityEngine.Random.value,
-                 -1f + 2f * UnityEngine.Random.value,
-                 1.5f + 5f * UnityEngine.Random.value);
-            var rad = 0.1f + UnityEngine.Random.value * 0.9f;
-            var matType = (MaterialType)UnityEngine.Random.Range(0, 3); // Note: is max exclusive
-            var mat = new Material(matType, new float3(0.5f) + 0.5f * new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
-            mat.Fuzz = math.pow(UnityEngine.Random.value * 0.6f, 2f);
-            scene.Spheres[i] = new Sphere(pos, rad, mat);
-        }
+        scene.Spheres = new NativeArray<Sphere>(4, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        scene.Spheres[0] = new Sphere(new float3(0, -100.5f, 1), 100f, new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f)));
+        scene.Spheres[1] = new Sphere(new float3(0, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(0.1f, 0.2f, 0.5f)));
+        scene.Spheres[2] = new Sphere(new float3(1, 0,1), 0.5f, new Material(MaterialType.Metal, new float3(0.8f, 0.6f, 0.2f)));
+        scene.Spheres[3] = new Sphere(new float3(-1, 0,1), 0.5f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
 
-        scene.Planes = new NativeArray<Plane>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        scene.Planes[0] = new Plane(
-            new float3(0f, -1, 0f),
-            new float3(0f, 1f, 0f),
-            new Material(MaterialType.Diffuse, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value)));
+        // var floorMat = new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f));
+        scene.Planes = new NativeArray<Plane>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        // scene.Planes[0] = new Plane(
+        //     new float3(0f, -0.5f, 0f),
+        //     new float3(0f, 1f, 0f),
+        //     floorMat);
 
-        // Todo: Putting material in shape, and using recursive shapes (disk = planeXcircle) results in redundant material information
-        var diskMat = new Material(MaterialType.Metal, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
-        scene.Disks = new NativeArray<Disk>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        scene.Disks[0] = new Disk(
-            new Plane(new float3(5f, 1f, 5f), math.normalize(new float3(0f, 1f, -1)), diskMat),
-            5f,
-            diskMat);
+        // var diskMat = new Material(MaterialType.Metal, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
+        scene.Disks = new NativeArray<Disk>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        // scene.Disks[0] = new Disk(
+        //     new Plane(new float3(5f, 1f, 10f), math.normalize(new float3(0f, 1f, -1)), diskMat),
+        //     5f,
+        //     diskMat);
 
         return scene;
     }
@@ -133,13 +132,13 @@ public class WeekendTracer : MonoBehaviour {
     private void Start() {
         // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
         _trace.Quality.RaysPerPixel = 1;
-        _trace.Quality.MaxRecursionDepth = 1;
+        _trace.Quality.MaxDepth = 1;
         StartRender();
         CompleteRender();
 
         // Now do a full-quality render
         _trace.Quality.RaysPerPixel = 64;
-        _trace.Quality.MaxRecursionDepth = 8;
+        _trace.Quality.MaxDepth = 32;
         StartRender();
     }
 
@@ -149,6 +148,58 @@ public class WeekendTracer : MonoBehaviour {
         } else {
             if (Input.GetKeyDown(KeyCode.Space)) {
                 StartRender();
+            }
+        }
+    }
+
+    private void OnDrawGizmos() {
+        if (!Application.isPlaying) {
+            return;
+        }
+
+        int i = _camInfo.resolution.x * (_camInfo.resolution.y / 4) + _camInfo.resolution.x / 4;
+        var xor = new XorshiftBurst(i * 2543, i * 12269, i * 19037, i * 26699);
+        xor.Next();
+        xor.Next();
+        xor.Next();
+        xor.Next();
+        xor.Next();
+        xor.Next();
+
+        var screenPos = ToXY(i, _camInfo);
+        float3 pixel = new float3(0f);
+
+        Gizmos.color = new Color(1f, 1f, 1f, 0.5f);
+        for (int s = 0; s < _scene.Spheres.Length; s++) {
+            Gizmos.DrawSphere(_scene.Spheres[s].Center, _scene.Spheres[s].Radius);
+        }
+
+        for (int r = 0; r < _trace.Quality.RaysPerPixel; r++) {
+            Gizmos.color = Color.HSVToRGB(r / (float)_trace.Quality.RaysPerPixel, 0.7f, 0.5f);
+            float2 jitter = new float2(xor.NextFloat(), xor.NextFloat()) * 100f;
+            float2 p = (screenPos + jitter) / (float2)_camInfo.resolution;
+
+            var ray = MakeRay(p, _camInfo);
+
+            bool wasRefracted = false;
+
+            for (int t = 0; t < _trace.Quality.MaxDepth; t++) {
+                const float tMin = 0f;
+                const float tMax = 1000f;
+
+                Gizmos.DrawSphere(ray.origin, 0.01f);
+
+                HitRecord hit;
+                bool hitSomething = HitTest.Scene(_scene, ray, tMin, tMax, out hit);
+                if (hitSomething) {
+                    if (wasRefracted) {
+                        Gizmos.color = Color.cyan;
+                    }
+                    Gizmos.DrawLine(ray.origin, hit.point);
+                    ray = Scatter(ray, hit, ref xor, _trace.Fibs, out wasRefracted);
+                } else {
+                    Gizmos.DrawRay(ray.origin, math.normalize(ray.direction));
+                }
             }
         }
     }
@@ -184,7 +235,7 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void OnGUI() {
-        GUI.DrawTexture(new Rect(0f, 0f, _tex.width, _tex.height), _tex);
+        GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), _tex, ScaleMode.ScaleToFit);
         // Todo: add some controls
     }
 
@@ -200,7 +251,7 @@ public class WeekendTracer : MonoBehaviour {
         public float tMin;
         public float tMax;
         public int RaysPerPixel;
-        public int MaxRecursionDepth;
+        public int MaxDepth;
     }
 
     [BurstCompile]
@@ -220,17 +271,20 @@ public class WeekendTracer : MonoBehaviour {
             xor.Next();
             xor.Next();
             xor.Next();
+            xor.Next();
+            xor.Next();
+            xor.Next();
 
             var screenPos = ToXY(i, Cam);
             float3 pixel = new float3(0f);
 
-            ulong rayCount = 0;
+            ushort rayCount = 0;
 
             for (int r = 0; r < Quality.RaysPerPixel; r++) {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Cam.resolution;
                 var ray = MakeRay(p, Cam);
-                pixel += Trace(ray, Scene, ref xor, Fibs, 0, Quality.MaxRecursionDepth, ref rayCount);
+                pixel += TraceRecursive(ray, Scene, ref xor, Fibs, 0, Quality.MaxDepth, ref rayCount);
             }
 
             Screen[i] = pixel / (float)(Quality.RaysPerPixel);
@@ -239,7 +293,7 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
-    private static float3 Trace(Ray3f ray, Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth, ref ulong rayCount) {
+    private static float3 TraceRecursive(Ray3f ray, Scene scene, ref XorshiftBurst xor, NativeArray<float3> fibs, int depth, int maxDepth, ref ushort rayCount) {
         HitRecord  hit;
 
         if (depth >= maxDepth) {
@@ -259,8 +313,9 @@ public class WeekendTracer : MonoBehaviour {
             // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
             // Filter it through its material model
 
-            Ray3f subRay = Scatter(ray, hit, ref xor, fibs);
-            light = Trace(subRay, scene, ref xor, fibs, depth++, maxDepth, ref rayCount);
+            bool refracted;
+            Ray3f subRay = Scatter(ray, hit, ref xor, fibs, out refracted);
+            light = TraceRecursive(subRay, scene, ref xor, fibs, depth+1, maxDepth, ref rayCount);
             light = BRDF(hit, light);
         } else {
             // We see sunlight, just send that back through the path traversed
@@ -273,68 +328,128 @@ public class WeekendTracer : MonoBehaviour {
         return light;
     }
 
-    //[MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Ray3f Scatter(Ray3f ray, HitRecord hit, ref XorshiftBurst xor, NativeArray<float3> fibs) {
+    private static Ray3f Scatter(Ray3f ray, HitRecord hit, ref XorshiftBurst xor, NativeArray<float3> fibs, out bool wasRefracted) {
         const float eps = 0.0001f;
+
+        const float refIdx = 1.5f;
+
+        wasRefracted = false;
 
         switch(hit.material.Type) {
             case MaterialType.Dielectric:
             {
-                // Todo: refract
-                float3 reflection = Reflect(ray.direction, hit.normal);
-                float3 fuzz = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
-                return new Ray3f(hit.p + hit.normal * eps, reflection + fuzz);
+                float3 outward_normal;
+                float ni_over_nt;
+                float3 reflected = math.reflect(ray.direction, hit.normal);
+                float reflectProb;
+                float cosine;
+                
+                float rDotN = math.dot(ray.direction, hit.normal);
+                if (rDotN > 0f) {
+                    outward_normal = -hit.normal;
+                    ni_over_nt = refIdx;
+                    cosine = refIdx * rDotN;
+                }
+                else {
+                    outward_normal = hit.normal;
+                    ni_over_nt = 1f / refIdx;
+                    cosine = -rDotN;
+                }
+
+                float3 refracted;
+                if (Refract(ray.direction, outward_normal, ni_over_nt, out refracted)) {
+                    reflectProb = Schlick(cosine, refIdx);
+                } else {
+                    reflectProb = 1f;
+                }
+
+                bool reflect = xor.NextFloat() < reflectProb;
+                wasRefracted = !reflect;
+
+                return new Ray3f(
+                    reflect ? hit.point + outward_normal * eps : hit.point - outward_normal * eps,
+                    reflect ? reflected : refracted
+                );
             }
             case MaterialType.Metal:
             {
-                // Todo: fuzz of const radius is addded to ray.Direction, which is of arbitrary length. 
-                // Small rays will thus get scattered more than large ones. Right or wrong?
-                float3 reflection = Reflect(ray.direction, hit.normal);
-                float3 fuzz = fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
-                return new Ray3f(hit.p + hit.normal * eps, reflection + fuzz);
+                // Todo: false if dot(reflected, normal) < 0
+                float3 transmitted = math.reflect(ray.direction, hit.normal);
+                transmitted += fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
+                transmitted = math.normalize(transmitted);
+                return new Ray3f(hit.point + hit.normal * eps, transmitted);
+                
             }
-            case MaterialType.Diffuse:
+            case MaterialType.Lambertian:
             default:
             {
-                return new Ray3f(hit.p + hit.normal * eps, hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)]);
+                float3 transmitted = hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)];
+                
+                return new Ray3f(hit.point + hit.normal * eps, transmitted);
             }
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float3 Reflect(float3 v, float3 n) {
-        return v - (2f * math.dot(v, n)) * n;
-    }
-
-    // Todo: derive this
     // [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool Refract(float3 v, float3 n, float ni_over_nt, out float3 refracted) {
-        float3 uv = math.normalize(v);
-        float dt = math.dot(uv, n);
-        float discriminant = 1f - ni_over_nt * ni_over_nt * (1f - dt * dt);
+    // private static float3 Reflect(float3 v, float3 n) {
+    //     return v - (2f * math.dot(v, n)) * n;
+    // }
 
-        if (discriminant > 0f) {
-            refracted = ni_over_nt * (uv - n*dt) - n * math.sqrt(discriminant);
+    public static bool Refract(float3 v, float3 n, float nint, out float3 outRefracted) {
+        float dt = math.dot(v, n);
+        float discr = 1.0f - nint * nint * (1 - dt * dt);
+        if (discr > 0) {
+            outRefracted = nint * (v - n * dt) - n * math.sqrt(discr);
             return true;
         }
-
-        refracted = new float3(0f);
+        outRefracted = new float3(0, 0, 0);
         return false;
     }
 
-    // Note: not passing by ref here causes huge errors
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    // private static bool Refract(float3 I, float3 N, float ior, out float3 refracted) {
+    //     I = math.normalize(I);
+    //     N = math.normalize(N);
+    //     float cosi = math.clamp(math.dot(I, N), -1f, 1f);
+    //     float etai = 1f;
+    //     float etat = ior;
+    //     float3 n = N;
+    //     if (cosi < 0) {
+    //         cosi = -cosi;
+    //     } else {
+    //         float temp = etai;
+    //         etai = etat;
+    //         etat = temp;
+    //         n = -n;
+    //     }
+    //     float eta = etai / etat;
+    //     float k = 1f - eta * eta * (1f - cosi * cosi);
+    //     if (k < 0f) {
+    //         refracted = 0f;
+    //         return false;
+    //     } else {
+    //         refracted = eta * I + (eta * cosi - math.sqrt(k)) * n;
+    //         return true;
+    //     }
+    // }
+
+    public static float Schlick(float cosine, float ri) {
+        float r0 = (1f - ri) / (1f + ri);
+        r0 = r0 * r0;
+        return r0 + (1f - r0) * math.pow(1f - cosine, 5f);
+    }
+
     private static float3 BRDF(HitRecord hit, float3 light) {
         switch (hit.material.Type) {
+            case MaterialType.Dielectric:
+                return light;
             case MaterialType.Metal:
                 return light * hit.material.Albedo;
-            case MaterialType.Diffuse:
+            case MaterialType.Lambertian:
             default:
                 return light * hit.material.Albedo;
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float2 ToXY(int screenIdx, CameraInfo cam) {
         return new float2(
             (screenIdx % cam.resolution.x),
@@ -342,13 +457,13 @@ public class WeekendTracer : MonoBehaviour {
         );
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Ray3f MakeRay(float2 screenPos, CameraInfo cam) {
         return new Ray3f(
             new float3(),
-            cam.lowerLeft +
-            cam.hori * screenPos.x +
-            cam.vert * screenPos.y);
+            math.normalize(
+                cam.lowerLeft
+                + cam.hori * screenPos.x +
+                cam.vert * screenPos.y));
     }
 
     private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex, CameraInfo cam) {
@@ -409,7 +524,7 @@ public class WeekendTracer : MonoBehaviour {
 
     private struct HitRecord {
         public float t;
-        public float3 p;
+        public float3 point;
         public float3 normal;
         public Material material;
     }
@@ -429,7 +544,7 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private enum MaterialType { // If I make this : byte, switching on it makes burst cry
-        Diffuse = 0,
+        Lambertian = 0,
         Metal = 1,
         Dielectric = 2
     }
@@ -543,7 +658,7 @@ public class WeekendTracer : MonoBehaviour {
                 float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
                 if (t > eps) {
                     hit.t = t;
-                    hit.p = PointOnRay(r, t);
+                    hit.point = PointOnRay(r, t);
                     hit.normal = p.Normal;
                     return true;
                 }
@@ -557,7 +672,7 @@ public class WeekendTracer : MonoBehaviour {
             hit = new HitRecord();
 
             if (Plane(d.Plane, r, tMin, tMax, out hit)) {
-                var offset = (hit.p - d.Plane.Center);
+                var offset = (hit.point - d.Plane.Center);
                 if (math.dot(offset, offset) <= d.Radius * d.Radius) {
                     return true;
                 }
@@ -581,20 +696,44 @@ public class WeekendTracer : MonoBehaviour {
                 float t = (-b - math.sqrt(discriminant)) / (2.0f * a);
                 if (t < tMax && t > tMin) {
                     hit.t = t;
-                    hit.p = PointOnRay(r, t);
-                    hit.normal = (hit.p - s.Center) / s.Radius;
+                    hit.point = PointOnRay(r, t);
+                    hit.normal = (hit.point - s.Center) / s.Radius;
                     return true;
                 }
 
                 t = (-b + math.sqrt(discriminant)) / (2.0f * a);
                 if (t < tMax && t > tMin) {
                     hit.t = t;
-                    hit.p = PointOnRay(r, t);
-                    hit.normal = (hit.p - s.Center) / s.Radius;
+                    hit.point = PointOnRay(r, t);
+                    hit.normal = (hit.point - s.Center) / s.Radius;
                     return true;
                 }
             }
             return false;
+
+            // float3 oc = r.origin - s.Center;
+            // float b = math.dot(oc, r.direction);
+            // float c = math.dot(oc, oc) - s.Radius * s.Radius;
+            // float discr = b * b - c;
+            // if (discr > 0) {
+            //     float discrSq = math.sqrt(discr);
+
+            //     float t = (-b - discrSq);
+            //     if (t < tMax && t > tMin) {
+            //         hit.point = PointOnRay(r, t);
+            //         hit.normal = (hit.point - s.Center) / s.Radius;
+            //         hit.t = t;
+            //         return true;
+            //     }
+            //     t = (-b + discrSq);
+            //     if (t < tMax && t > tMin) {
+            //         hit.point = PointOnRay(r, t);
+            //         hit.normal = (hit.point - s.Center) / s.Radius;
+            //         hit.t = t;
+            //         return true;
+            //     }
+            // }
+            // return false;
         }
     }
 }
