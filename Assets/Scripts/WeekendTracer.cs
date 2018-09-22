@@ -137,7 +137,7 @@ public class WeekendTracer : MonoBehaviour {
         CompleteRender();
 
         // Now do a full-quality render
-        _trace.Quality.RaysPerPixel = 64;
+        _trace.Quality.RaysPerPixel = 128;
         _trace.Quality.MaxDepth = 32;
         StartRender();
     }
@@ -181,7 +181,7 @@ public class WeekendTracer : MonoBehaviour {
 
             var ray = MakeRay(p, _camInfo);
 
-            bool wasRefracted = false;
+            float reflectProb = 1f;
 
             for (int t = 0; t < _trace.Quality.MaxDepth; t++) {
                 const float tMin = 0f;
@@ -192,13 +192,16 @@ public class WeekendTracer : MonoBehaviour {
                 HitRecord hit;
                 bool hitSomething = HitTest.Scene(_scene, ray, tMin, tMax, out hit);
                 if (hitSomething) {
-                    if (wasRefracted) {
-                        Gizmos.color = Color.cyan;
-                    }
+                    Gizmos.color = new Color(reflectProb, reflectProb, reflectProb);
                     Gizmos.DrawLine(ray.origin, hit.point);
-                    ray = Scatter(ray, hit, ref xor, _trace.Fibs, out wasRefracted);
+                    Ray3f subRay;
+                    if (!Scatter(ray, hit, ref xor, _trace.Fibs, out subRay, out reflectProb)) {
+                        break;
+                    }
+                    ray = subRay;
                 } else {
                     Gizmos.DrawRay(ray.origin, math.normalize(ray.direction));
+                    break;
                 }
             }
         }
@@ -307,69 +310,67 @@ public class WeekendTracer : MonoBehaviour {
         bool hitSomething = HitTest.Scene(scene, ray, tMin, tMax, out hit);
         ++rayCount;
 
-        float3 light;
+        float3 light = new float3(0);
 
         if (hitSomething) {
             // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
             // Filter it through its material model
 
-            bool refracted;
-            Ray3f subRay = Scatter(ray, hit, ref xor, fibs, out refracted);
-            light = TraceRecursive(subRay, scene, ref xor, fibs, depth+1, maxDepth, ref rayCount);
+            float refr;
+            Ray3f subRay;
+            bool scattered = Scatter(ray, hit, ref xor, fibs, out subRay, out refr);
+            if (scattered) {
+                light = TraceRecursive(subRay, scene, ref xor, fibs, depth + 1, maxDepth, ref rayCount);
+            }
             light = BRDF(hit, light);
         } else {
             // We see sunlight, just send that back through the path traversed
 
-            var normedDir = math.normalize(ray.direction);
-            float t = 0.5f * (normedDir.y + 1f);
+            float t = 0.5f * (ray.direction.y + 1f);
             light = (1f - t) * new float3(1f) + t * scene.LightColor;
         }
 
         return light;
     }
 
-    private static Ray3f Scatter(Ray3f ray, HitRecord hit, ref XorshiftBurst xor, NativeArray<float3> fibs, out bool wasRefracted) {
+    private static bool Scatter(Ray3f ray, HitRecord hit, ref XorshiftBurst xor, NativeArray<float3> fibs, out Ray3f scattered, out float reflectProb) {
         const float eps = 0.0001f;
 
         const float refIdx = 1.5f;
-
-        wasRefracted = false;
+        reflectProb = 1f;
 
         switch(hit.material.Type) {
             case MaterialType.Dielectric:
             {
-                float3 outward_normal;
-                float ni_over_nt;
+                float3 outwardNormal;
+                float nint;
                 float3 reflected = math.reflect(ray.direction, hit.normal);
-                float reflectProb;
                 float cosine;
                 
                 float rDotN = math.dot(ray.direction, hit.normal);
                 if (rDotN > 0f) {
-                    outward_normal = -hit.normal;
-                    ni_over_nt = refIdx;
+                    outwardNormal = -hit.normal;
+                    nint = refIdx;
                     cosine = refIdx * rDotN;
                 }
                 else {
-                    outward_normal = hit.normal;
-                    ni_over_nt = 1f / refIdx;
+                    outwardNormal = hit.normal;
+                    nint = 1f / refIdx;
                     cosine = -rDotN;
                 }
 
                 float3 refracted;
-                if (Refract(ray.direction, outward_normal, ni_over_nt, out refracted)) {
+                if (Refract(ray.direction, outwardNormal, nint, out refracted)) {
                     reflectProb = Schlick(cosine, refIdx);
-                } else {
-                    reflectProb = 1f;
                 }
 
                 bool reflect = xor.NextFloat() < reflectProb;
-                wasRefracted = !reflect;
 
-                return new Ray3f(
-                    reflect ? hit.point + outward_normal * eps : hit.point - outward_normal * eps,
+                scattered = new Ray3f(
+                    reflect ? hit.point + outwardNormal * eps : hit.point - outwardNormal * eps,
                     reflect ? reflected : refracted
                 );
+                return true;
             }
             case MaterialType.Metal:
             {
@@ -377,15 +378,19 @@ public class WeekendTracer : MonoBehaviour {
                 float3 transmitted = math.reflect(ray.direction, hit.normal);
                 transmitted += fibs[xor.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
                 transmitted = math.normalize(transmitted);
-                return new Ray3f(hit.point + hit.normal * eps, transmitted);
-                
+                scattered = new Ray3f(hit.point + hit.normal * eps, transmitted);
+                if (math.dot(scattered.direction, hit.normal) > 0) {
+                    return true;
+                }
+                return false;
             }
             case MaterialType.Lambertian:
             default:
             {
-                float3 transmitted = hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)];
-                
-                return new Ray3f(hit.point + hit.normal * eps, transmitted);
+                float3 target = hit.normal + fibs[xor.NextInt(0, fibs.Length - 1)];
+                float3 transmitted = math.normalize(target - hit.point);
+                scattered = new Ray3f(hit.point + hit.normal * eps, transmitted);
+                return true;
             }
         }
     }
@@ -400,6 +405,7 @@ public class WeekendTracer : MonoBehaviour {
         float discr = 1.0f - nint * nint * (1 - dt * dt);
         if (discr > 0) {
             outRefracted = nint * (v - n * dt) - n * math.sqrt(discr);
+            outRefracted = math.normalize(outRefracted);
             return true;
         }
         outRefracted = new float3(0, 0, 0);
