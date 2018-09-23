@@ -2,6 +2,7 @@
 Toying with some software rendering algorithms using Unity's new Burst compiler and job system.
 
 Here's some renders of a WIP implementation of Peter Shirley's Raytracing in One Weekend book:
+![](https://i.imgur.com/E53G6uu.jpeg)
 ![](https://i.imgur.com/F5gRFub.jpeg)
 ![](https://i.imgur.com/CpmjLDv.jpeg)
 
