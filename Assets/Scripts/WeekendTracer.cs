@@ -58,17 +58,35 @@ public class WeekendTracer : MonoBehaviour {
     private ClearJob _clear;
     private TraceJob _trace;
 
-    private CameraInfo _camInfo = new CameraInfo(
-        new int2(1024, 512) * 2,
-        new float3(-2.0f, -1.0f, 1.0f),
-        new float3(4f, 0f, 0f),
-        new float3(0f, 2f, 0f));
+    private Camera _camera = new Camera(50f, 21f/9f);
+
+    private TraceJobQuality _debugQuality = new TraceJobQuality()
+    {
+        tMin = 0,
+        tMax = 1000,
+        MaxDepth = 4,
+        RaysPerPixel = 2
+    };
+
+    private TraceJobQuality _fullQuality = new TraceJobQuality() {
+        tMin = 0,
+        tMax = 1000,
+        MaxDepth = 32,
+        RaysPerPixel = 32
+    };
 
     private Color[] _colors;
     private Texture2D _tex;
 
     private void Awake() {
-        _screen = new NativeArray<float3>(_camInfo.resolution.x * _camInfo.resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        int vertResolution = 512;
+        int horiResolution = (int)math.round(vertResolution * _camera.aspect);
+        _fullQuality.Resolution = new int2(horiResolution, vertResolution);
+        _debugQuality.Resolution = _fullQuality.Resolution;
+        
+        Debug.Log("Resolution = " + _fullQuality.Resolution);
+
+        _screen = new NativeArray<float3>(_fullQuality.Resolution.x * _fullQuality.Resolution.y, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _clear = new ClearJob();
         _clear.Buffer = _screen;
 
@@ -81,13 +99,11 @@ public class WeekendTracer : MonoBehaviour {
         _trace.Screen = _screen;
         _trace.Fibs = _fibs;
         _trace.Scene = _scene;
-        _trace.Cam = _camInfo;
-        _trace.Quality.tMax = 1000f;
-        _trace.Quality.tMin = 0f;
+        _trace.Camera = _camera;
         _trace.RayCounter = new NativeArray<ulong>(1, Allocator.Persistent, NativeArrayOptions.ClearMemory);
 
-        _colors = new Color[_camInfo.resolution.x * _camInfo.resolution.y];
-        _tex = new Texture2D(_camInfo.resolution.x, _camInfo.resolution.y, TextureFormat.ARGB32, false, true);
+        _colors = new Color[_fullQuality.Resolution.x * _fullQuality.Resolution.y];
+        _tex = new Texture2D(_fullQuality.Resolution.x, _fullQuality.Resolution.y, TextureFormat.ARGB32, false, true);
         _tex.filterMode = FilterMode.Point;
     }
 
@@ -133,15 +149,13 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void Start() {
-        // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
-        _trace.Quality.RaysPerPixel = 2;
-        _trace.Quality.MaxDepth = 4;
+        // // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
+        _trace.Quality = _debugQuality;
         StartRender();
         CompleteRender();
 
         // Now do a full-quality render
-        _trace.Quality.RaysPerPixel = 512;
-        _trace.Quality.MaxDepth = 64;
+        _trace.Quality = _fullQuality;
         StartRender();
     }
 
@@ -161,7 +175,7 @@ public class WeekendTracer : MonoBehaviour {
             return;
         }
 
-        int i = _camInfo.resolution.x * (_camInfo.resolution.y / 4) + _camInfo.resolution.x / 4;
+        int i = _fullQuality.Resolution.x * (_fullQuality.Resolution.y / 4) + _fullQuality.Resolution.x / 4;
         var xor = new XorshiftBurst(i * 2543, i * 12269, i * 19037, i * 26699);
         xor.Next();
         xor.Next();
@@ -170,7 +184,7 @@ public class WeekendTracer : MonoBehaviour {
         xor.Next();
         xor.Next();
 
-        var screenPos = ToXY(i, _camInfo);
+        var screenPos = ToXY(i, _fullQuality.Resolution);
         float3 pixel = new float3(0f);
 
         Gizmos.color = new Color(1f, 1f, 1f, 0.5f);
@@ -181,9 +195,9 @@ public class WeekendTracer : MonoBehaviour {
         for (int r = 0; r < _trace.Quality.RaysPerPixel; r++) {
             Gizmos.color = Color.HSVToRGB(r / (float)_trace.Quality.RaysPerPixel, 0.7f, 0.5f);
             float2 jitter = new float2(xor.NextFloat(), xor.NextFloat()) * 300f;
-            float2 p = (screenPos + jitter) / (float2)_camInfo.resolution;
+            float2 p = (screenPos + jitter) / (float2)_fullQuality.Resolution;
 
-            var ray = MakeRay(p, _camInfo);
+            var ray = _camera.GetRay(p);
 
             float reflectProb = 1f;
 
@@ -237,7 +251,7 @@ public class WeekendTracer : MonoBehaviour {
         _watch.Stop();
         Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms, Num Rays: " + _trace.RayCounter[0]);
         Debug.Log("That's about " + (_trace.RayCounter[0] / (_watch.ElapsedMilliseconds / 1000.0d)) / 1000000.0d + " MRay/sec");
-        ToTexture2D(_screen, _colors, _tex, _camInfo);
+        ToTexture2D(_screen, _colors, _tex, _fullQuality.Resolution);
         _renderHandle = null;
     }
 
@@ -262,6 +276,7 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private struct TraceJobQuality {
+        public int2 Resolution;
         public float tMin;
         public float tMax;
         public int RaysPerPixel;
@@ -273,7 +288,7 @@ public class WeekendTracer : MonoBehaviour {
         [WriteOnly] public NativeArray<float3> Screen;
         [ReadOnly] public Scene Scene;
         [ReadOnly] public NativeArray<float3> Fibs;
-        [ReadOnly] public CameraInfo Cam;
+        [ReadOnly] public Camera Camera;
         [ReadOnly] public TraceJobQuality Quality;
 
         [NativeDisableParallelForRestriction] public NativeArray<ulong> RayCounter;
@@ -289,15 +304,15 @@ public class WeekendTracer : MonoBehaviour {
             xor.Next();
             xor.Next();
 
-            var screenPos = ToXY(i, Cam);
+            var screenPos = ToXY(i, Quality.Resolution);
             float3 pixel = new float3(0f);
 
             ushort rayCount = 0;
 
             for (int r = 0; r < Quality.RaysPerPixel; r++) {
                 float2 jitter = new float2(xor.NextFloat(), xor.NextFloat());
-                float2 p = (screenPos + jitter) / (float2)Cam.resolution;
-                var ray = MakeRay(p, Cam);
+                float2 p = (screenPos + jitter) / (float2)Quality.Resolution;
+                var ray = Camera.GetRay(p);
                 pixel += TraceRecursive(ray, Scene, ref xor, Fibs, 0, Quality.MaxDepth, ref rayCount);
             }
 
@@ -466,29 +481,20 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
-    private static float2 ToXY(int screenIdx, CameraInfo cam) {
+    private static float2 ToXY(int screenIdx, int2 resolution) {
         return new float2(
-            (screenIdx % cam.resolution.x),
-            (screenIdx / cam.resolution.x)
+            (screenIdx % resolution.x),
+            (screenIdx / resolution.x)
         );
     }
 
-    private static Ray3f MakeRay(float2 screenPos, CameraInfo cam) {
-        return new Ray3f(
-            new float3(),
-            math.normalize(
-                cam.lowerLeft
-                + cam.hori * screenPos.x +
-                cam.vert * screenPos.y));
-    }
-
-    private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex, CameraInfo cam) {
+    private static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex, int2 resolution) {
         for (int i = 0; i < screen.Length; i++) {
             var c = screen[i];
             colors[i] = new Color(c.x, c.y, c.z, 1f);
         }
 
-        tex.SetPixels(0, 0, cam.resolution.x, cam.resolution.y, colors, 0);
+        tex.SetPixels(0, 0, resolution.x, resolution.y, colors, 0);
         tex.Apply();
     }
 
@@ -524,17 +530,32 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
-    private struct CameraInfo {
-        public int2 resolution;
-        public float3 lowerLeft;
-        public float3 hori;
-        public float3 vert;
+    private struct Camera {
+        private float3 origin;
+        private float3 lowerLeft;
+        private float3 hori;
+        private float3 vert;
 
-        public CameraInfo(int2 res, float3 ll, float3 ho, float3 ve) {
-            resolution = res;
-            lowerLeft = ll;
-            hori = ho;
-            vert = ve;
+        public readonly float vfov;
+        public readonly float aspect;
+
+        public Camera(float vfov, float aspect) {
+            this.vfov = vfov;
+            this.aspect = aspect;
+
+            float theta = vfov * Mathf.Deg2Rad;
+            float halfHeight = math.tan(theta/2f);
+            float halfWidth = aspect * halfHeight;
+            lowerLeft = new float3(-halfWidth, -halfHeight, 1.0f);
+            hori = new float3(2f * halfWidth, 0f, 0f);
+            vert = new float3(0f, 2f * halfHeight, 0f);
+            origin = new float3(0f);
+        }
+
+        public Ray3f GetRay(float2 uv) {
+            return new Ray3f(
+                origin,
+                math.normalize(lowerLeft + uv.x * hori + uv.y * vert - origin));
         }
     }
 
