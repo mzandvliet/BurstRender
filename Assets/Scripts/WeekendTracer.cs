@@ -60,36 +60,45 @@ public class WeekendTracer : MonoBehaviour {
     private ClearJob _clear;
     private TraceJob _trace;
 
-    private Camera _camera = new Camera(35f, 16f/9f);
+    private Camera _camera;
 
     private TraceJobQuality _debugQuality = new TraceJobQuality()
     {
         tMin = 0,
         tMax = 1000,
+        RaysPerPixel = 2,
         MaxDepth = 4,
-        RaysPerPixel = 2
     };
 
     private TraceJobQuality _fullQuality = new TraceJobQuality() {
         tMin = 0,
         tMax = 1000,
-        MaxDepth = 16,
-        RaysPerPixel = 256
+        RaysPerPixel = 512,
+        MaxDepth = 64,
+        
     };
 
     private Color[] _colors;
     private Texture2D _tex;
 
     private void Awake() {
-        uint vertResolution = 1080;
-        uint horiResolution = (uint)math.round(vertResolution * _camera.Aspect);
+        const uint vertResolution = 1080;
+        const float aspect = 16f / 9f;
+        const float vfov = 20f;
+        const float aperture = 0.5f;
+
+        uint horiResolution = (uint)math.round(vertResolution * aspect);
         _fullQuality.Resolution = new uint2(horiResolution, vertResolution);
         _debugQuality.Resolution = _fullQuality.Resolution;
 
-        _camera.Position = new float3(-2f, 2f, -1f);
-        float3 lookDir = math.normalize(new float3(0, 0, 1) - _camera.Position);
-       _camera.Rotation = quaternion.LookRotation(lookDir, new float3(0,1,0));
-        
+        var position = new float3(3f, 3f, -2f);
+        var lookDir = new float3(0, 0, 1) - position;
+        var focus = math.length(lookDir);
+        var rotation = quaternion.LookRotation(lookDir / focus, new float3(0,1,0));
+        _camera = new Camera(vfov, aspect, aperture, focus);
+        _camera.Position = position;
+        _camera.Rotation = rotation;
+       
         Debug.Log("Resolution = " + _fullQuality.Resolution);
 
         int totalPixels = (int)(_fullQuality.Resolution.x * _fullQuality.Resolution.y);
@@ -127,16 +136,16 @@ public class WeekendTracer : MonoBehaviour {
         scene.LightDir = math.normalize(new float3(-2f, -1, -0.33f));
         scene.LightColor = new float3(0.5f, 0.7f, 1f);
 
-        UnityEngine.Random.InitState(1234);
+        var rng = new Random(1234);
 
         scene.Spheres = new NativeArray<Sphere>(7, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        scene.Spheres[0] = new Sphere(new float3(0, -100.5f, 1), 100f, new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f)));
-        scene.Spheres[1] = new Sphere(new float3(0, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(0.1f, 0.2f, 0.5f)));
-        scene.Spheres[2] = new Sphere(new float3(1, 0,1), 0.5f, new Material(MaterialType.Metal, new float3(0.8f, 0.6f, 0.2f)));
-        scene.Spheres[3] = new Sphere(new float3(-1, 0,1), 0.5f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
-        scene.Spheres[4] = new Sphere(new float3(-1, 0, 1), -0.45f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
-        scene.Spheres[5] = new Sphere(new float3(-1, 0, 1), 0.4f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
-        scene.Spheres[6] = new Sphere(new float3(-1, 0, 1), -0.35f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
+        scene.Spheres[0] = new Sphere(new float3( 0, -100.5f, 1), 100f, new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f)));
+        scene.Spheres[1] = new Sphere(new float3(-1, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(0.1f, 0.2f, 0.5f)));
+        scene.Spheres[2] = new Sphere(new float3( 1, 0, 1), 0.5f, new Material(MaterialType.Metal, new float3(0.8f, 0.6f, 0.2f)));
+        scene.Spheres[3] = new Sphere(new float3( 0, 0, 1), 0.5f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
+        scene.Spheres[4] = new Sphere(new float3( 0, 0, 1), -0.45f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
+        scene.Spheres[5] = new Sphere(new float3( 0, 0, 1), 0.4f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
+        scene.Spheres[6] = new Sphere(new float3( 0, 0, 1), -0.35f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
 
         // var floorMat = new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f));
         scene.Planes = new NativeArray<Plane>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
@@ -145,7 +154,7 @@ public class WeekendTracer : MonoBehaviour {
         //     new float3(0f, 1f, 0f),
         //     floorMat);
 
-        // var diskMat = new Material(MaterialType.Metal, new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value));
+        // var diskMat = new Material(MaterialType.Metal, new float3(rng.NextFloat(), rng.NextFloat(), rng.NextFloat()));
         scene.Disks = new NativeArray<Disk>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         // scene.Disks[0] = new Disk(
         //     new Plane(new float3(5f, 1f, 10f), math.normalize(new float3(0f, 1f, -1)), diskMat),
@@ -161,7 +170,7 @@ public class WeekendTracer : MonoBehaviour {
         StartRender();
         CompleteRender();
 
-        // Now do a full-quality render
+        // // Now do a full-quality render
         _trace.Quality = _fullQuality;
         StartRender();
     }
@@ -195,12 +204,12 @@ public class WeekendTracer : MonoBehaviour {
             Gizmos.DrawSphere(_scene.Spheres[s].Center, _scene.Spheres[s].Radius);
         }
 
-        for (int r = 0; r < _trace.Quality.RaysPerPixel; r++) {
+        for (int r = 0; r < 16; r++) {
             Gizmos.color = Color.HSVToRGB(r / (float)_trace.Quality.RaysPerPixel, 0.7f, 0.5f);
-            float2 jitter = new float2(rng.NextFloat(), rng.NextFloat()) * 300f;
+            float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
             float2 p = (screenPos + jitter) / (float2)_fullQuality.Resolution;
 
-            var ray = _camera.GetRay(p);
+            var ray = _camera.GetRay(p, ref rng);
 
             float reflectProb = 1f;
 
@@ -309,7 +318,7 @@ public class WeekendTracer : MonoBehaviour {
             for (int r = 0; r < Quality.RaysPerPixel; r++) {
                 float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
                 float2 p = (screenPos + jitter) / (float2)Quality.Resolution;
-                var ray = Camera.GetRay(p);
+                var ray = Camera.GetRay(p, ref rng);
                 pixel += TraceRecursive(ray, Scene, ref rng, Fibs, 0, Quality.MaxDepth, ref rayCount);
             }
 
@@ -527,6 +536,12 @@ public class WeekendTracer : MonoBehaviour {
         }
     }
 
+    private static float3 RandomInUnitDisk(ref Random rng) {
+        float theta = rng.NextFloat() * Mathf.PI * 2f;
+        float r = math.sqrt(rng.NextFloat());
+        return new float3(math.cos(theta) * r, math.sin(theta) * r, 0f);
+    }
+
     private struct Camera {
         public float3 Position;
         public Quaternion Rotation;
@@ -534,6 +549,8 @@ public class WeekendTracer : MonoBehaviour {
         private float3 LowerLeft;
         private float3 Horizontal;
         private float3 Vertical;
+
+        private float LensRadius;
         
         public float VFov {
             get;
@@ -544,35 +561,46 @@ public class WeekendTracer : MonoBehaviour {
             private set;
         }
 
-        public Camera(float vfov, float aspect) {
+        public float FocusDistance {
+            get;
+            private set;
+        }
+
+        public Camera(float vfov, float aspect, float aperture, float focusDistance) {
             Position = new float3(0f);
             Rotation = quaternion.identity;
-            VFov = 0f;
-            Aspect = 0f;
             LowerLeft = new float3(0f);
             Horizontal = new float3(0f);
             Vertical = new float3(0f);
 
-            Configure(vfov, aspect);
-        }
-
-        public void Configure(float vfov, float aspect) {
             VFov = vfov;
             Aspect = aspect;
+            LensRadius = aperture / 2f;
+            FocusDistance = focusDistance;
 
-            float theta = vfov * Mathf.Deg2Rad;
-            float halfHeight = math.tan(theta / 2f);
-            float halfWidth = aspect * halfHeight;
-            LowerLeft = new float3(-halfWidth, -halfHeight, 1.0f);
-            Horizontal = new float3(2f * halfWidth, 0f, 0f);
-            Vertical = new float3(0f, 2f * halfHeight, 0f);
+            UpdateSettings();
         }
 
-        public Ray3f GetRay(float2 uv) {
+        public void UpdateSettings() {
+            float theta = VFov * Mathf.Deg2Rad;
+            float halfHeight = math.tan(theta / 2f);
+            float halfWidth = Aspect * halfHeight;
+
+            LowerLeft = new float3(-halfWidth * FocusDistance, -halfHeight * FocusDistance, FocusDistance);
+            Horizontal = new float3(2f * halfWidth * FocusDistance, 0f, 0f);
+            Vertical = new float3(0f, 2f * halfHeight * FocusDistance, 0f);
+        }
+
+        public Ray3f GetRay(float2 uv, ref Random rng) {
             // Todo: could optimize by storing pre-rotated lowerLeft, Horizontal and Vertical vectors.
+            float3 offset = RandomInUnitDisk(ref rng) * LensRadius;
+            float3 direction = math.normalize(LowerLeft + uv.x * Horizontal + uv.y * Vertical - offset);
+            offset = Rotation * offset;
+            direction = Rotation * direction;
             return new Ray3f(
-                Position,
-                Rotation * math.normalize(LowerLeft + uv.x * Horizontal + uv.y * Vertical));
+                Position + offset,
+                direction
+            );
         }
     }
 

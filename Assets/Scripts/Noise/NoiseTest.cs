@@ -158,6 +158,20 @@ public class NoiseTest : MonoBehaviour {
     //     GUI.DrawTexture(new Rect(0f, 0f, res, res), _tex);
     // }
 
+    private void OnDrawGizmos() {
+        var rng = new Unity.Mathematics.Random(1234); 
+        for (int i = 0; i < 1024; i++) {
+            var pos = RandomInUnitDisk(ref rng) * 10f;
+            Gizmos.DrawSphere(pos, 0.1f);
+        }
+    }
+
+    private static float3 RandomInUnitDisk(ref Unity.Mathematics.Random rng) {
+        float theta = rng.NextFloat() * Mathf.PI * 2f;
+        float r = math.sqrt(rng.NextFloat());
+        return new float3(math.cos(theta) * r, math.sin(theta) * r, 0f);
+    }
+
     [BurstCompile]
     public struct UMathRngJob : IJob {
         [WriteOnly] public NativeArray<float> Values;

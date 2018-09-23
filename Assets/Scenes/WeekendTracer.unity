@@ -141,7 +141,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a02fcbe4c5ebc21459d1f3fafa936323, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _drawDebugRays: 0
+  _drawDebugRays: 1
   _saveImage: 0
   _saveFolder: C:\Users\Martijn\Desktop\weekendtracer\
 --- !u!4 &446136934
