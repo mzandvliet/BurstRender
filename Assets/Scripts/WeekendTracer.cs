@@ -10,13 +10,10 @@ using System.Runtime.CompilerServices;
 /* 
 Todo:
 
-!! Whenever we make a ray, its direction needs to be unit length. Otherwise PointOnRay fucks up.
-
-Ray geometry debug visualizer (show ray paths by reusing existing trace funcs)
 Performance varies wildly for small variations in scene. Sometimes 70MRay/sec, sometimes 10. Egalize.
 
 - Test Unity.Mathematics.Random
-- Dieletrics, transformable camera object for ray generation
+- Transformable camera object for ray generation
 - Make it easier to configure render properties. num rays pp, resolution, etc.
 - Investigate editor performance (slow on first render, fast on next)
 
@@ -51,6 +48,9 @@ trace function.
 */
 
 public class WeekendTracer : MonoBehaviour {
+    [SerializeField] private bool _drawDebugRays;
+    [SerializeField] private string _saveFolder = "C:\\Users\\Martijn\\Desktop\\weekendtracer\\";
+
     private NativeArray<float3> _screen;
     private Scene _scene;
     private NativeArray<float3> _fibs;
@@ -59,7 +59,7 @@ public class WeekendTracer : MonoBehaviour {
     private TraceJob _trace;
 
     private CameraInfo _camInfo = new CameraInfo(
-        new int2(1024, 512),
+        new int2(1024, 512) * 2,
         new float3(-2.0f, -1.0f, 1.0f),
         new float3(4f, 0f, 0f),
         new float3(0f, 2f, 0f));
@@ -106,11 +106,14 @@ public class WeekendTracer : MonoBehaviour {
 
         UnityEngine.Random.InitState(1234);
 
-        scene.Spheres = new NativeArray<Sphere>(4, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        scene.Spheres = new NativeArray<Sphere>(7, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         scene.Spheres[0] = new Sphere(new float3(0, -100.5f, 1), 100f, new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f)));
         scene.Spheres[1] = new Sphere(new float3(0, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(0.1f, 0.2f, 0.5f)));
         scene.Spheres[2] = new Sphere(new float3(1, 0,1), 0.5f, new Material(MaterialType.Metal, new float3(0.8f, 0.6f, 0.2f)));
         scene.Spheres[3] = new Sphere(new float3(-1, 0,1), 0.5f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
+        scene.Spheres[4] = new Sphere(new float3(-1, 0, 1), -0.45f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
+        scene.Spheres[5] = new Sphere(new float3(-1, 0, 1), 0.4f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
+        scene.Spheres[6] = new Sphere(new float3(-1, 0, 1), -0.35f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
 
         // var floorMat = new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f));
         scene.Planes = new NativeArray<Plane>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
@@ -131,20 +134,21 @@ public class WeekendTracer : MonoBehaviour {
 
     private void Start() {
         // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
-        _trace.Quality.RaysPerPixel = 1;
-        _trace.Quality.MaxDepth = 1;
+        _trace.Quality.RaysPerPixel = 2;
+        _trace.Quality.MaxDepth = 4;
         StartRender();
         CompleteRender();
 
         // Now do a full-quality render
-        _trace.Quality.RaysPerPixel = 128;
-        _trace.Quality.MaxDepth = 32;
+        _trace.Quality.RaysPerPixel = 512;
+        _trace.Quality.MaxDepth = 64;
         StartRender();
     }
 
     private void Update() {
         if (_renderHandle.HasValue && _renderHandle.Value.IsCompleted) {
             CompleteRender();
+            ExportImage(_tex, _saveFolder);
         } else {
             if (Input.GetKeyDown(KeyCode.Space)) {
                 StartRender();
@@ -153,7 +157,7 @@ public class WeekendTracer : MonoBehaviour {
     }
 
     private void OnDrawGizmos() {
-        if (!Application.isPlaying) {
+        if (!Application.isPlaying || !_drawDebugRays) {
             return;
         }
 
@@ -176,7 +180,7 @@ public class WeekendTracer : MonoBehaviour {
 
         for (int r = 0; r < _trace.Quality.RaysPerPixel; r++) {
             Gizmos.color = Color.HSVToRGB(r / (float)_trace.Quality.RaysPerPixel, 0.7f, 0.5f);
-            float2 jitter = new float2(xor.NextFloat(), xor.NextFloat()) * 100f;
+            float2 jitter = new float2(xor.NextFloat(), xor.NextFloat()) * 300f;
             float2 p = (screenPos + jitter) / (float2)_camInfo.resolution;
 
             var ray = MakeRay(p, _camInfo);
@@ -237,6 +241,13 @@ public class WeekendTracer : MonoBehaviour {
         _renderHandle = null;
     }
 
+    private static void ExportImage(Texture2D texture, string folder) {
+        var bytes = texture.EncodeToJPG(100);
+        System.IO.File.WriteAllBytes(
+            System.IO.Path.Combine(folder, string.Format("render_{0}.png", System.DateTime.Now.ToFileTimeUtc())),
+            bytes);
+    }
+
     private void OnGUI() {
         GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), _tex, ScaleMode.ScaleToFit);
         // Todo: add some controls
@@ -290,7 +301,7 @@ public class WeekendTracer : MonoBehaviour {
                 pixel += TraceRecursive(ray, Scene, ref xor, Fibs, 0, Quality.MaxDepth, ref rayCount);
             }
 
-            Screen[i] = pixel / (float)(Quality.RaysPerPixel);
+            Screen[i] = math.sqrt(pixel / (float)(Quality.RaysPerPixel));
 
             RayCounter[0] += rayCount; // Todo: atomics, or rather, fix the amount of rays per job run
         }
@@ -347,16 +358,15 @@ public class WeekendTracer : MonoBehaviour {
                 float3 reflected = math.reflect(ray.direction, hit.normal);
                 float cosine;
                 
-                float rDotN = math.dot(ray.direction, hit.normal);
-                if (rDotN > 0f) {
+                if (math.dot(ray.direction, hit.normal) > 0f) {
                     outwardNormal = -hit.normal;
                     nint = refIdx;
-                    cosine = refIdx * rDotN;
+                    cosine = refIdx * math.dot(ray.direction, hit.normal);
                 }
                 else {
                     outwardNormal = hit.normal;
                     nint = 1f / refIdx;
-                    cosine = -rDotN;
+                    cosine = -math.dot(ray.direction, hit.normal);
                 }
 
                 float3 refracted;
