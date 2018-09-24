@@ -1,114 +1,55 @@
-using System;
-using System.Runtime.CompilerServices;
-using System.Diagnostics;
 using Unity.Mathematics;
-using UnityEngine;
+using Unity.Collections;
+using Random = Unity.Mathematics.Random;
 
-namespace RamjetMath {
-    [System.Serializable]
-    public struct Ray3f : System.IEquatable<Ray3f>, IFormattable {
-        public float3 origin;
-        public float3 direction;
+namespace Ramjet {
+    public static class Math {
+        public const float Tau = 6.2831853071795864769f;
+        public const float Pi = Tau / 2f;
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Ray3f(float3 origin, float3 direction) {
-            this.origin = origin;
-            this.direction = direction;
+        public static float2 ToXY(uint screenIdx, uint2 resolution) {
+            return new float2(
+                (screenIdx % resolution.x),
+                (screenIdx / resolution.x)
+            );
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Equals(Ray3f other) {
-            return this.origin.Equals(other.origin) && this.direction.Equals(other.direction);
+        public static float3 RandomInUnitDisk(ref Random rng) {
+            float theta = rng.NextFloat() * Tau;
+            float r = math.sqrt(rng.NextFloat());
+            return new float3(math.cos(theta) * r, math.sin(theta) * r, 0f);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string ToString(string format, IFormatProvider formatProvider) {
-            return string.Format("{pos: {0}, dir: {1}}", origin, direction);
+        public static void GenerateFibonacciSphere(NativeArray<float3> output) {
+            float n = output.Length / 2.0f;
+            float dphi = Pi * (3.0f - math.sqrt(5.0f));
+            float phi = 0f;
+            float dz = 1.0f / n;
+            float z = 1.0f - dz / 2.0f;
+            int[] indices = new int[output.Length];
+
+            for (int j = 0; j < n; j++) {
+                float zj = z;
+                float thetaj = math.acos(zj);
+                float phij = phi % Tau;
+                z = z - dz;
+                phi = phi + dphi;
+
+                // spherical -> cartesian, with r = 1
+                output[j] = new float3((float)(math.cos(phij) * math.sin(thetaj)),
+                                        (float)(zj),
+                                        (float)(math.sin(thetaj) * math.sin(phij)));
+                indices[j] = j;
+            }
+
+            // The code above only covers a hemisphere, this mirrors it into a sphere.
+            for (int i = 0; i < n; i++) {
+                var vz = output[i];
+                vz.y *= -1;
+                output[output.Length - i - 1] = vz;
+                indices[i + output.Length / 2] = i + output.Length / 2;
+            }
         }
     }
 
-    // [System.Serializable]
-    // public struct float3 : System.IEquatable<float3>, IFormattable {
-    //     public float x;
-    //     public float y;
-    //     public float z;
-
-    //     public static readonly float3 zero = new float3(0f, 0f, 0f);
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public float3(float x, float y, float z) {
-    //         this.x = x;
-    //         this.y = y;
-    //         this.z = z;
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float3 operator +(float3 lhs, float3 rhs) {
-    //         return new float3(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float3 operator -(float3 lhs, float3 rhs) {
-    //         return new float3(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float3 operator *(float3 lhs, float3 rhs) {
-    //         return new float3(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float3 operator /(float3 lhs, float3 rhs) {
-    //         return new float3(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float3 operator *(float3 lhs, float rhs) {
-    //         return new float3(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float3 operator /(float3 lhs, float rhs) {
-    //         return new float3(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float Length(float3 v) {
-    //         return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float SqrLength(float3 v) {
-    //         return v.x * v.x + v.y * v.y + v.z * v.z;
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float Dot(float3 lhs, float3 rhs) {
-    //         return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static float3 Cross(float3 lhs, float3 rhs) {
-    //         return new float3(
-    //             lhs.y * rhs.z - lhs.z * rhs.y,
-    //             lhs.x * rhs.z - lhs.z * rhs.x,
-    //             lhs.x * rhs.y - lhs.y * rhs.x
-    //         );
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public bool Equals(float3 other) {
-    //         return this.x == other.x && this.y == other.y && this.z == other.z;
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public string ToString(string format, IFormatProvider formatProvider) {
-    //         return string.Format("{x: {0:0.000}, y: {1:0.000}, z: {2:0.000}}", x, y, z);
-    //     }
-
-    //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    //     public static Vector3 ToVector3 (float3 v) {
-    //         return new Vector3(v.x, v.y, v.z);
-    //     }
-    // }
 }

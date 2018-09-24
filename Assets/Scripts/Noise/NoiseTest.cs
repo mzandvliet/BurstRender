@@ -87,7 +87,7 @@ public class NoiseTest : MonoBehaviour {
         Debug.Log("MersenneTwister Managed: " + sw.ElapsedMilliseconds);
 
         // 351ms, 91ms
-        var rrm = new RamjetMath.MersenneTwister(1234);
+        var rrm = new Ramjet.MersenneTwister(1234);
         sw = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < values.Length; i++) {
             values[i] = rrm.genrand_real2();
@@ -187,7 +187,7 @@ public class NoiseTest : MonoBehaviour {
     [BurstCompile]
     public struct MTJob : IJob {
         [WriteOnly] public NativeArray<float> Values;
-        public RamjetMath.MersenneTwister Random;
+        public Ramjet.MersenneTwister Random;
 
         public void Execute() {
             for (int i = 0; i < Values.Length; i++) {

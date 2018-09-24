@@ -3,7 +3,8 @@ using Unity.Collections;
 using Unity.Burst;
 using Unity.Jobs;
 using Unity.Mathematics;
-using RamjetMath;
+using Ramjet;
+using Weekend;
 
 using ScreenBuffer = Unity.Collections.NativeArray<float>;
 using System.Runtime.CompilerServices;
@@ -66,18 +67,6 @@ public class Tracer : MonoBehaviour {
     private void OnGUI() {
         GUI.DrawTexture(new Rect(0f, 0f, _tex.width * 2f, _tex.height * 2f), _tex);
     }
-
-    // private void OnDrawGizmos() {
-    //     var res = Cam.resolution;
-
-    //     for (int i = 0; i < res.x * res.y; i++) {
-    //         var screenPos = ToXY(i, Cam) / (float2)Cam.resolution;
-    //         var r = MakeRay(screenPos, Cam);
-
-    //         Gizmos.color = new Color(screenPos.x, 0f, screenPos.y, 1f);
-    //         Gizmos.DrawRay(r.origin, r.direction);
-    //     }
-    // }
 
     [BurstCompile]
     private struct ClearJob : IJobParallelFor {

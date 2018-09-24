@@ -66,7 +66,7 @@ using System.Runtime.InteropServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
-namespace RamjetMath {
+namespace Ramjet {
     [StructLayout(LayoutKind.Sequential)]
     unsafe public struct UnsafeUintArray : IDisposable {
         [NativeDisableUnsafePtrRestriction]
