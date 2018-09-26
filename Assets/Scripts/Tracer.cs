@@ -193,7 +193,7 @@ namespace Tracing {
             public void Execute(int i) {
                 var rng = new Unity.Mathematics.Random(14387 + ((uint)i * 7));
 
-                var screenPos = Math.ToXY((uint)i, Quality.Resolution);
+                var screenPos = Math.ToNormalizedCoords((uint)i, Quality.Resolution);
                 float3 pixel = new float3(0f);
 
                 ushort rayCount = 0;
