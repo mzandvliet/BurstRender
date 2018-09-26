@@ -5,8 +5,10 @@ using Ramjet;
 using System.Runtime.CompilerServices;
 
 using Random = Unity.Mathematics.Random;
+using Unity.Burst;
+using Unity.Jobs;
 
-namespace Weekend {
+namespace Tracing {
     [System.Serializable]
     public struct Ray3f : System.IEquatable<Ray3f>, System.IFormattable {
         public float3 origin;
@@ -92,7 +94,7 @@ namespace Weekend {
     }
 
     public struct HitRecord {
-        public float t;
+        public float distance;
         public float3 point;
         public float3 normal;
         public Material material;
@@ -174,7 +176,7 @@ namespace Weekend {
         public static bool Scene(Scene s, Ray3f r, float tMin, float tMax, out HitRecord finalHit) {
             bool hitAnything = false;
             HitRecord closestHit = new HitRecord();
-            closestHit.t = tMax;
+            closestHit.distance = tMax;
 
             // Note: this is the most naive brute force scene intersection you could ever do :P
 
@@ -183,7 +185,7 @@ namespace Weekend {
             // Hit planes
             for (int i = 0; i < s.Planes.Length; i++) {
                 if (Intersect.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestHit.t) {
+                    if (hit.distance < closestHit.distance) {
                         hit.material = s.Planes[i].Material;
                         hitAnything = true;
                         closestHit = hit;
@@ -194,7 +196,7 @@ namespace Weekend {
             // Hit disks
             for (int i = 0; i < s.Disks.Length; i++) {
                 if (Intersect.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestHit.t) {
+                    if (hit.distance < closestHit.distance) {
                         hit.material = s.Disks[i].Material;
                         hitAnything = true;
                         closestHit = hit;
@@ -205,7 +207,7 @@ namespace Weekend {
             // // Hit spheres
             for (int i = 0; i < s.Spheres.Length; i++) {
                 if (Intersect.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
-                    if (hit.t < closestHit.t) {
+                    if (hit.distance < closestHit.distance) {
                         hit.material = s.Spheres[i].Material;
                         hitAnything = true;
                         closestHit = hit;
@@ -226,7 +228,7 @@ namespace Weekend {
             if (math.abs(math.dot(r.direction, p.Normal)) > eps) {
                 float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
                 if (t > eps) {
-                    hit.t = t;
+                    hit.distance = t;
                     hit.point = PointOnRay(r, t);
                     hit.normal = p.Normal;
                     return true;
@@ -264,7 +266,7 @@ namespace Weekend {
             if (discriminant > 0f) {
                 float t = (-b - math.sqrt(discriminant)) / (2.0f * a);
                 if (t < tMax && t > tMin) {
-                    hit.t = t;
+                    hit.distance = t;
                     hit.point = PointOnRay(r, t);
                     hit.normal = (hit.point - s.Center) / s.Radius;
                     return true;
@@ -272,7 +274,7 @@ namespace Weekend {
 
                 t = (-b + math.sqrt(discriminant)) / (2.0f * a);
                 if (t < tMax && t > tMin) {
-                    hit.t = t;
+                    hit.distance = t;
                     hit.point = PointOnRay(r, t);
                     hit.normal = (hit.point - s.Center) / s.Radius;
                     return true;
@@ -317,6 +319,7 @@ namespace Weekend {
 
             const float tMin = 0f;
             const float tMax = 1000f;
+            const float eps = 0.0001f;
 
             bool hitSomething = Intersect.Scene(scene, ray, tMin, tMax, out hit);
             ++rayCount;
@@ -327,9 +330,8 @@ namespace Weekend {
                 // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
                 // Filter it through its material model
 
-                float refr;
                 Ray3f subRay;
-                bool scattered = Scatter(ray, hit, ref rng, fibs, out subRay, out refr);
+                bool scattered = Scatter(ray, hit, ref rng, fibs, out subRay, eps);
                 if (scattered) {
                     light = TraceRecursive(subRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
                 }
@@ -344,11 +346,8 @@ namespace Weekend {
             return light;
         }
 
-        public static bool Scatter(Ray3f ray, HitRecord hit, ref Random rng, NativeArray<float3> fibs, out Ray3f scattered, out float reflectProb) {
-            const float eps = 0.0001f;
-
+        public static bool Scatter(Ray3f ray, HitRecord hit, ref Random rng, NativeArray<float3> fibs, out Ray3f scattered, float eps) {
             const float refIdx = 1.5f;
-            reflectProb = 1f;
 
             switch (hit.material.Type) {
                 case MaterialType.Dielectric: {
@@ -368,6 +367,7 @@ namespace Weekend {
                         }
 
                         float3 refracted;
+                        float reflectProb = 1f;
                         if (Refract(ray.direction, outwardNormal, nint, out refracted)) {
                             reflectProb = Schlick(cosine, refIdx);
                         }
@@ -460,6 +460,14 @@ namespace Weekend {
                 default:
                     return light * hit.material.Albedo;
             }
+        }
+    }
+
+    [BurstCompile]
+    public struct ClearJob : IJobParallelFor {
+        public NativeArray<float3> Buffer;
+        public void Execute(int i) {
+            Buffer[i] = 0f;
         }
     }
 }

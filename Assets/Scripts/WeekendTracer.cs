@@ -9,6 +9,10 @@ using Random = Unity.Mathematics.Random;
 /* 
 Todo:
 
+Light, motion blur, modeled shapes and materials.
+BVH-like structure for broad phase intersections
+Try iterative-adaptive sampling strategies (fixed amount of ray evaluations per frame, distribute wisely)
+
 Performance varies wildly for small variations in scene. Sometimes 70MRay/sec, sometimes 10. Egalize.
 
 - Find a nicer way to stop jobs in progress in case you want to abort a render. It's messes up the editor now.
@@ -41,7 +45,7 @@ For multiple object types and lists per scene, we can make a type system that ma
 trace function.
 */
 
-namespace Weekend {
+namespace Tracing {
     public class WeekendTracer : MonoBehaviour {
         [SerializeField] private bool _drawDebugRays;
         [SerializeField] private bool _saveImage;
@@ -56,7 +60,6 @@ namespace Weekend {
         private ClearJob _clear;
         private TraceJob _trace;
 
-
         private TraceJobQuality _debugQuality = new TraceJobQuality() {
             tMin = 0,
             tMax = 1000,
@@ -67,7 +70,7 @@ namespace Weekend {
         private TraceJobQuality _fullQuality = new TraceJobQuality() {
             tMin = 0,
             tMax = 1000,
-            RaysPerPixel = 128,
+            RaysPerPixel = 1024,
             MaxDepth = 64,
         };
 
@@ -126,15 +129,15 @@ namespace Weekend {
         private static Scene MakeScene() {
             var scene = new Scene();
 
-            scene.LightDir = math.normalize(new float3(-2f, -1, -0.33f));
-            scene.LightColor = new float3(0.5f, 0.7f, 1f);
+            scene.LightDir = math.normalize(new float3(-1f, -1, -0.33f));
+            scene.LightColor = new float3(0.15f, 0.2f, 4f);
 
             var rng = new Random(1234);
 
             scene.Spheres = new NativeArray<Sphere>(7, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             scene.Spheres[0] = new Sphere(new float3(0, -100.5f, 1), 100f, new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f)));
-            scene.Spheres[1] = new Sphere(new float3(-1, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(0.1f, 0.2f, 0.5f)));
-            scene.Spheres[2] = new Sphere(new float3(1, 0, 1), 0.5f, new Material(MaterialType.Metal, new float3(0.8f, 0.6f, 0.2f)));
+            scene.Spheres[1] = new Sphere(new float3(1, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(0.1f, 0.2f, 0.5f)));
+            scene.Spheres[2] = new Sphere(new float3(-1, 0, 1), 0.5f, new Material(MaterialType.Metal, new float3(0.8f, 0.6f, 0.2f)));
             scene.Spheres[3] = new Sphere(new float3(0, 0, 1), 0.5f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
             scene.Spheres[4] = new Sphere(new float3(0, 0, 1), -0.45f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
             scene.Spheres[5] = new Sphere(new float3(0, 0, 1), 0.4f, new Material(MaterialType.Dielectric, new float3(1f, 1f, 1f)));
@@ -193,21 +196,19 @@ namespace Weekend {
 
                 var ray = _camera.GetRay(p, ref rng);
 
-                float reflectProb = 1f;
-
                 for (int t = 0; t < _trace.Quality.MaxDepth; t++) {
                     const float tMin = 0f;
                     const float tMax = 1000f;
+                    const float eps = 0.0001f;
 
                     Gizmos.DrawSphere(ray.origin, 0.01f);
 
                     HitRecord hit;
                     bool hitSomething = Intersect.Scene(_scene, ray, tMin, tMax, out hit);
                     if (hitSomething) {
-                        Gizmos.color = new Color(reflectProb, reflectProb, reflectProb);
                         Gizmos.DrawLine(ray.origin, hit.point);
                         Ray3f subRay;
-                        if (!Trace.Scatter(ray, hit, ref rng, _trace.Fibs, out subRay, out reflectProb)) {
+                        if (!Trace.Scatter(ray, hit, ref rng, _trace.Fibs, out subRay, eps)) {
                             break;
                         }
                         ray = subRay;
@@ -254,21 +255,13 @@ namespace Weekend {
         }
 
         [BurstCompile]
-        private struct ClearJob : IJobParallelFor {
-            public NativeArray<float3> Buffer;
-            public void Execute(int i) {
-                Buffer[i] = 0f;
-            }
-        }
-
-        [BurstCompile]
         private struct TraceJob : IJobParallelFor {
-            [WriteOnly] public NativeArray<float3> Screen;
             [ReadOnly] public Scene Scene;
-            [ReadOnly] public NativeArray<float3> Fibs;
             [ReadOnly] public Camera Camera;
             [ReadOnly] public TraceJobQuality Quality;
+            [ReadOnly] public NativeArray<float3> Fibs;
 
+            [WriteOnly] public NativeArray<float3> Screen;
             [NativeDisableParallelForRestriction] public NativeArray<ulong> RayCounter;
 
             public void Execute(int i) {
