@@ -142,7 +142,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _drawDebugRays: 0
-  _saveImage: 1
+  _saveImage: 0
   _saveFolder: C:\Users\Martijn\Desktop\weekendtracer\
 --- !u!4 &1338589635
 Transform:

@@ -16,6 +16,7 @@ Distance field has different properties than classic intersection
 - After a bounce, ray starts at normal*eps distance from surface,
 and will leave it very slowly even though it will never hit it.
 - Scatter function should know that inside sphere means negative dist
+- viewpoints and rays parallel to surfaces wil ruin performance
 */
 
 namespace Tracing {
@@ -37,8 +38,8 @@ namespace Tracing {
         {
             tMin = 0,
             tMax = 1000,
-            RaysPerPixel = 4,
-            MaxDepth = 8,
+            RaysPerPixel = 1,
+            MaxDepth = 2,
         };
 
         private TraceJobQuality _fullQuality = new TraceJobQuality()
@@ -218,7 +219,7 @@ namespace Tracing {
                 return new float3(0);
             }
 
-            bool hitSomething = IntersectField(ray, scene, 256, out hit);
+            bool hitSomething = IntersectField(ray, scene, 256, 100f, out hit);
             ++rayCount;
 
             float3 light = new float3(0);
@@ -230,7 +231,6 @@ namespace Tracing {
                 Ray3f nextRay;
                 bool scattered = Trace.Scatter(ray, hit, ref rng, fibs, out nextRay, 0.002f);
                 if (scattered) {
-                    nextRay.origin += hit.normal;
                     light = TraceRecursive(nextRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
                 }
                 light = Trace.BRDF(hit, light);
@@ -245,7 +245,7 @@ namespace Tracing {
         }
 
         // Todo: wow this is pretty ugly and ineffecient, be smarter :P
-        private static bool IntersectField(Ray3f r, Scene scene, short maxStep, out HitRecord hit) {
+        private static bool IntersectField(Ray3f r, Scene scene, short maxStep, float maxDist, out HitRecord hit) {
             hit = new HitRecord();
 
             const float EPS = 0.001f;
@@ -274,6 +274,10 @@ namespace Tracing {
                     hit.normal = (p-sph.Center) / sph.Radius;
                     hit.material = sph.Material;
                     return true;
+                }
+
+                if (totalDist > maxDist) {
+                    return false;
                 }
 
                 p += r.direction * closestDist;
