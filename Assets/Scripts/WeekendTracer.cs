@@ -47,42 +47,32 @@ namespace Weekend {
         [SerializeField] private bool _saveImage;
         [SerializeField] private string _saveFolder = "C:\\Users\\Martijn\\Desktop\\weekendtracer\\";
 
-        private NativeArray<float3> _screen;
+        private NativeArray<Color> _screen;
         private NativeArray<float3> _fibs;
 
         private Scene _scene;
         private Camera _camera;
 
         private ClearJob _clear;
-        private TraceJob _trace;
 
 
-        private TraceJobQuality _debugQuality = new TraceJobQuality() {
+        private TraceJobQuality _quality = new TraceJobQuality() {
             tMin = 0,
             tMax = 1000,
-            RaysPerPixel = 4,
+            RaysPerPixel = 2,
             MaxDepth = 8,
         };
 
-        private TraceJobQuality _fullQuality = new TraceJobQuality() {
-            tMin = 0,
-            tMax = 1000,
-            RaysPerPixel = 128,
-            MaxDepth = 64,
-        };
-
-        private Color[] _colors;
         private Texture2D _tex;
 
         private void Awake() {
-            const uint vertResolution = 1080;
+            const uint vertResolution = 16;
             const float aspect = 21f / 9f;
             const float vfov = 25f;
             const float aperture = 0.1f;
 
             uint horiResolution = (uint)math.round(vertResolution * aspect);
-            _fullQuality.Resolution = new uint2(horiResolution, vertResolution);
-            _debugQuality.Resolution = _fullQuality.Resolution;
+            _quality.Resolution = new uint2(horiResolution, vertResolution);
 
             var position = new float3(-3f, 1f, -2f);
             var lookDir = new float3(0, 0, 1) - position;
@@ -92,10 +82,10 @@ namespace Weekend {
             _camera.Position = position;
             _camera.Rotation = rotation;
 
-            Debug.Log("Resolution = " + _fullQuality.Resolution);
+            Debug.Log("Resolution = " + _quality.Resolution);
 
-            int totalPixels = (int)(_fullQuality.Resolution.x * _fullQuality.Resolution.y);
-            _screen = new NativeArray<float3>(totalPixels, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            int totalPixels = (int)(_quality.Resolution.x * _quality.Resolution.y);
+            _screen = new NativeArray<Color>(totalPixels, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             _clear = new ClearJob();
             _clear.Buffer = _screen;
 
@@ -104,15 +94,7 @@ namespace Weekend {
             _fibs = new NativeArray<float3>(4096, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             Math.GenerateFibonacciSphere(_fibs);
 
-            _trace = new TraceJob();
-            _trace.Screen = _screen;
-            _trace.Fibs = _fibs;
-            _trace.Scene = _scene;
-            _trace.Camera = _camera;
-            _trace.RayCounter = new NativeArray<ulong>(1, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-
-            _colors = new Color[totalPixels];
-            _tex = new Texture2D((int)_fullQuality.Resolution.x, (int)_fullQuality.Resolution.y, TextureFormat.ARGB32, false, true);
+            _tex = new Texture2D((int)_quality.Resolution.x, (int)_quality.Resolution.y, TextureFormat.ARGB32, false, true);
             _tex.filterMode = FilterMode.Point;
         }
 
@@ -120,7 +102,6 @@ namespace Weekend {
             _screen.Dispose();
             _scene.Dispose();
             _fibs.Dispose();
-            _trace.RayCounter.Dispose();
         }
 
         private static Scene MakeScene() {
@@ -147,134 +128,104 @@ namespace Weekend {
         }
 
         private void Start() {
-            // // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
-            _trace.Quality = _debugQuality;
             StartRender();
-            CompleteRender();
-
-            // Now do a full-quality render
-            // _trace.Quality = _fullQuality;
-            // StartRender();
         }
 
-        private void Update() {
-            if (_renderHandle.HasValue && _renderHandle.Value.IsCompleted) {
-                CompleteRender();
-                if (_saveImage) {
-                    Util.ExportImage(_tex, _saveFolder);
-                }
-            } else {
-                if (Input.GetKeyDown(KeyCode.Space)) {
-                    StartRender();
-                }
-            }
-        }
-
-        private void OnDrawGizmos() {
-            if (!Application.isPlaying || !_drawDebugRays) {
-                return;
-            }
-
-            uint i = _fullQuality.Resolution.x * (_fullQuality.Resolution.y / 2) + _fullQuality.Resolution.x / 2;
-            var rng = new Unity.Mathematics.Random(14387 + ((uint)i * 7));
-
-            var screenPos = Math.ToXY(i, _fullQuality.Resolution);
-            float3 pixel = new float3(0f);
-
-            Gizmos.color = new Color(1f, 1f, 1f, 0.5f);
-            for (int s = 0; s < _scene.Spheres.Length; s++) {
-                Gizmos.DrawSphere(_scene.Spheres[s].Center, _scene.Spheres[s].Radius);
-            }
-
-            for (int r = 0; r < 16; r++) {
-                Gizmos.color = Color.HSVToRGB(r / (float)_trace.Quality.RaysPerPixel, 0.7f, 0.5f);
-                float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
-                float2 p = (screenPos + jitter) / (float2)_fullQuality.Resolution;
-
-                var ray = _camera.GetRay(p, ref rng);
-
-                float reflectProb = 1f;
-
-                for (int t = 0; t < _trace.Quality.MaxDepth; t++) {
-                    const float tMin = 0f;
-                    const float tMax = 1000f;
-
-                    Gizmos.DrawSphere(ray.origin, 0.01f);
-
-                    HitRecord hit;
-                    bool hitSomething = Intersect.Scene(_scene, ray, tMin, tMax, out hit);
-                    if (hitSomething) {
-                        Gizmos.color = new Color(reflectProb, reflectProb, reflectProb);
-                        Gizmos.DrawLine(ray.origin, hit.point);
-                        Ray3f subRay;
-                        if (!Trace.Scatter(ray, hit, ref rng, _trace.Fibs, out subRay, out reflectProb)) {
-                            break;
-                        }
-                        ray = subRay;
-                    } else {
-                        Gizmos.DrawRay(ray.origin, math.normalize(ray.direction));
-                        break;
-                    }
-                }
-            }
-        }
-
-        private JobHandle? _renderHandle;
+        private uint _pixelIndex;
+        private bool _isRendering;
+        private ulong _rayCount;
         private System.Diagnostics.Stopwatch _watch;
 
         private void StartRender() {
-            if (_renderHandle.HasValue) {
-                Debug.LogWarning("Cannot start new render while previous one is still busy");
+            Debug.Log("Rendering...");
+
+            if (_isRendering) {
+                Debug.Log("Already rendering...");
                 return;
             }
 
-            Debug.Log("Rendering...");
+            _isRendering = true;
+            _pixelIndex = 0;
 
             _watch = System.Diagnostics.Stopwatch.StartNew();
+        }
 
-            _trace.RayCounter[0] = 0;
+        private void Update() {
+            if (_isRendering) {
+                var tj = CreateTraceJob(_pixelIndex);
+                var h = tj.Schedule();
+                h.Complete();
 
-            _renderHandle = new JobHandle();
-            _renderHandle = _clear.Schedule(_screen.Length, 4, _renderHandle.Value);
-            _renderHandle = _trace.Schedule(_screen.Length, 4, _renderHandle.Value);
+                var pixCoords = Math.ToXY(_pixelIndex, _quality.Resolution);
+                _tex.SetPixel((int)pixCoords.x, (int)pixCoords.y, _screen[(int)_pixelIndex]);
+                _tex.Apply();
+
+                tj.Dispose();
+
+                _pixelIndex++;
+
+                if(_pixelIndex >= _screen.Length) {
+                    CompleteRender();
+                }
+            }
         }
 
         private void CompleteRender() {
-            _renderHandle.Value.Complete();
+            _isRendering = false;
 
             _watch.Stop();
-            Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms, Num Rays: " + _trace.RayCounter[0]);
-            Debug.Log("That's about " + (_trace.RayCounter[0] / (_watch.ElapsedMilliseconds / 1000.0d)) / 1000000.0d + " MRay/sec");
-            Util.ToTexture2D(_screen, _colors, _tex, _fullQuality.Resolution);
-            _renderHandle = null;
+            Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms, Num Rays: " + _rayCount);
+            Debug.Log("That's about " + (_rayCount / (_watch.ElapsedMilliseconds / 1000.0d)) / 1000000.0d + " MRay/sec");
+            //Util.ToTexture2D(_screen, _colors, _tex, _quality.Resolution);
+
+            if (_saveImage) {
+                Util.ExportImage(_tex, _saveFolder);
+            }
         }
 
         private void OnGUI() {
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), _tex, ScaleMode.ScaleToFit);
         }
 
+        private TraceJob CreateTraceJob(uint pixelIndex) {
+            var tj = new TraceJob();
+            tj.Screen = _screen;
+            tj.Fibs = _fibs;
+            tj.Scene = _scene;
+            tj.Camera = _camera;
+            tj.RayCounter = new NativeArray<ulong>(1, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            tj.Quality = _quality;
+            tj.PixelIndex = pixelIndex;
+            return tj;
+        }
+
         [BurstCompile]
         private struct ClearJob : IJobParallelFor {
-            public NativeArray<float3> Buffer;
+            public NativeArray<Color> Buffer;
             public void Execute(int i) {
-                Buffer[i] = 0f;
+                Buffer[i] = new Color(0,0,0,1);
             }
         }
 
         [BurstCompile]
-        private struct TraceJob : IJobParallelFor {
-            [WriteOnly] public NativeArray<float3> Screen;
+        private struct TraceJob : IJob, System.IDisposable {
+            [WriteOnly] public NativeArray<Color> Screen;
             [ReadOnly] public Scene Scene;
             [ReadOnly] public NativeArray<float3> Fibs;
             [ReadOnly] public Camera Camera;
             [ReadOnly] public TraceJobQuality Quality;
+            [ReadOnly] public uint PixelIndex;
 
             [NativeDisableParallelForRestriction] public NativeArray<ulong> RayCounter;
 
-            public void Execute(int i) {
-                var rng = new Unity.Mathematics.Random(14387 + ((uint)i * 7));
+            public void Dispose() {
+                RayCounter.Dispose();
+            }
 
-                var screenPos = Math.ToXY((uint)i, Quality.Resolution);
+            public void Execute() {
+                var rng = new Unity.Mathematics.Random(14387 + ((uint)PixelIndex * 7));
+
+                var screenPos = Math.ToXYFloat((uint)PixelIndex, Quality.Resolution);
                 float3 pixel = new float3(0f);
 
                 ushort rayCount = 0;
@@ -286,7 +237,8 @@ namespace Weekend {
                     pixel += Trace.TraceRecursive(ray, Scene, ref rng, Fibs, 0, Quality.MaxDepth, ref rayCount);
                 }
 
-                Screen[i] = math.sqrt(pixel / (float)(Quality.RaysPerPixel));
+                pixel = math.sqrt(pixel / (float)(Quality.RaysPerPixel));
+                Screen[(int)PixelIndex] = new Color(pixel.x, pixel.y, pixel.z, 1f);
 
                 RayCounter[0] += rayCount; // Todo: atomics, or rather, fix the amount of rays per job run
             }
@@ -298,6 +250,55 @@ namespace Weekend {
             public float tMax;
             public int RaysPerPixel;
             public int MaxDepth;
+        }
+
+        private void OnDrawGizmos() {
+            if (!Application.isPlaying || !_drawDebugRays) {
+                return;
+            }
+
+            uint i = _quality.Resolution.x * (_quality.Resolution.y / 2) + _quality.Resolution.x / 2;
+            var rng = new Unity.Mathematics.Random(14387 + ((uint)i * 7));
+
+            var screenPos = Math.ToXY(i, _quality.Resolution);
+            float3 pixel = new float3(0f);
+
+            Gizmos.color = new Color(1f, 1f, 1f, 0.5f);
+            for (int s = 0; s < _scene.Spheres.Length; s++) {
+                Gizmos.DrawSphere(_scene.Spheres[s].Center, _scene.Spheres[s].Radius);
+            }
+
+            for (int r = 0; r < 16; r++) {
+                Gizmos.color = Color.HSVToRGB(r / (float)_quality.RaysPerPixel, 0.7f, 0.5f);
+                float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
+                float2 p = (screenPos + jitter) / (float2)_quality.Resolution;
+
+                var ray = _camera.GetRay(p, ref rng);
+
+                float reflectProb = 1f;
+
+                for (int t = 0; t < _quality.MaxDepth; t++) {
+                    const float tMin = 0f;
+                    const float tMax = 1000f;
+
+                    Gizmos.DrawSphere(ray.origin, 0.01f);
+
+                    HitRecord hit;
+                    bool hitSomething = Intersect.Scene(_scene, ray, tMin, tMax, out hit);
+                    if (hitSomething) {
+                        Gizmos.color = new Color(reflectProb, reflectProb, reflectProb);
+                        Gizmos.DrawLine(ray.origin, hit.point);
+                        Ray3f subRay;
+                        if (!Trace.Scatter(ray, hit, ref rng, _fibs, out subRay, out reflectProb)) {
+                            break;
+                        }
+                        ray = subRay;
+                    } else {
+                        Gizmos.DrawRay(ray.origin, math.normalize(ray.direction));
+                        break;
+                    }
+                }
+            }
         }
     }
 }
