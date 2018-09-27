@@ -54,21 +54,21 @@ namespace Tracing {
 
         private ClearJob _clear;
 
-        private const int _jobsPerFrame = 8;
+        private const int _jobsPerFrame = 1024;
 
 
         private TraceJobQuality _quality = new TraceJobQuality() {
             tMin = 0,
             tMax = 1000,
-            RaysPerPixel = 8,
-            MaxDepth = 16,
+            RaysPerPixel = 512,
+            MaxDepth = 64,
         };
 
         private Texture2D _tex;
         private int _totalPixels;
 
         private void Awake() {
-            const uint vertResolution = 64;
+            const uint vertResolution = 512;
             const float aspect = 21f / 9f;
             const float vfov = 25f;
             const float aperture = 0.1f;
