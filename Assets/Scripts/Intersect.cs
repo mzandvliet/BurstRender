@@ -94,7 +94,7 @@ namespace Tracing {
     }
 
     public struct HitRecord {
-        public float distance;
+        public float t;
         public float3 point;
         public float3 normal;
         public Material material;
@@ -176,7 +176,7 @@ namespace Tracing {
         public static bool Scene(Scene s, Ray3f r, float tMin, float tMax, out HitRecord finalHit) {
             bool hitAnything = false;
             HitRecord closestHit = new HitRecord();
-            closestHit.distance = tMax;
+            closestHit.t = tMax;
 
             // Note: this is the most naive brute force scene intersection you could ever do :P
 
@@ -185,7 +185,7 @@ namespace Tracing {
             // Hit planes
             for (int i = 0; i < s.Planes.Length; i++) {
                 if (Intersect.Plane(s.Planes[i], r, tMin, tMax, out hit)) {
-                    if (hit.distance < closestHit.distance) {
+                    if (hit.t < closestHit.t) {
                         hit.material = s.Planes[i].Material;
                         hitAnything = true;
                         closestHit = hit;
@@ -196,7 +196,7 @@ namespace Tracing {
             // Hit disks
             for (int i = 0; i < s.Disks.Length; i++) {
                 if (Intersect.Disk(s.Disks[i], r, tMin, tMax, out hit)) {
-                    if (hit.distance < closestHit.distance) {
+                    if (hit.t < closestHit.t) {
                         hit.material = s.Disks[i].Material;
                         hitAnything = true;
                         closestHit = hit;
@@ -207,7 +207,7 @@ namespace Tracing {
             // // Hit spheres
             for (int i = 0; i < s.Spheres.Length; i++) {
                 if (Intersect.Sphere(s.Spheres[i], r, tMin, tMax, out hit)) {
-                    if (hit.distance < closestHit.distance) {
+                    if (hit.t < closestHit.t) {
                         hit.material = s.Spheres[i].Material;
                         hitAnything = true;
                         closestHit = hit;
@@ -228,7 +228,7 @@ namespace Tracing {
             if (math.abs(math.dot(r.direction, p.Normal)) > eps) {
                 float t = math.dot((p.Center - r.origin), p.Normal) / math.dot(r.direction, p.Normal);
                 if (t > eps) {
-                    hit.distance = t;
+                    hit.t = t;
                     hit.point = PointOnRay(r, t);
                     hit.normal = p.Normal;
                     return true;
@@ -266,7 +266,7 @@ namespace Tracing {
             if (discriminant > 0f) {
                 float t = (-b - math.sqrt(discriminant)) / (2.0f * a);
                 if (t < tMax && t > tMin) {
-                    hit.distance = t;
+                    hit.t = t;
                     hit.point = PointOnRay(r, t);
                     hit.normal = (hit.point - s.Center) / s.Radius;
                     return true;
@@ -274,7 +274,7 @@ namespace Tracing {
 
                 t = (-b + math.sqrt(discriminant)) / (2.0f * a);
                 if (t < tMax && t > tMin) {
-                    hit.distance = t;
+                    hit.t = t;
                     hit.point = PointOnRay(r, t);
                     hit.normal = (hit.point - s.Center) / s.Radius;
                     return true;
@@ -312,50 +312,44 @@ namespace Tracing {
         public static float3 TraceRecursive(Ray3f ray, Scene scene, ref Random rng, NativeArray<float3> fibs, int depth, int maxDepth, ref ushort rayCount) {
             HitRecord hit;
 
-            // if (depth >= maxDepth) {
-            //     hit = new HitRecord();
-            //     return new float3(0);
-            // }
-
-            ++rayCount;
+            if (depth >= maxDepth) {
+                hit = new HitRecord();
+                return new float3(0);
+            }
 
             const float tMin = 0f;
             const float tMax = 1000f;
-            const float eps = 0.0001f;
 
             bool hitSomething = Intersect.Scene(scene, ray, tMin, tMax, out hit);
+            ++rayCount;
+
+            float3 light = new float3(0);
 
             if (hitSomething) {
-                return new float3(1,0,0);
+                // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
+                // Filter it through its material model
+
+                Ray3f subRay;
+                bool scattered = Scatter(ray, hit, ref rng, fibs, out subRay);
+                if (scattered) {
+                    light = TraceRecursive(subRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
+                }
+                light = BRDF(hit, light);
+            } else {
+                // We see sunlight, just send that back through the path traversed
+
+                float t = 0.5f * (ray.direction.y + 1f);
+                light = (1f - t) * new float3(1f) + t * scene.LightColor;
             }
-            return new float3(0,0,1);
 
-            
-
-            // float3 light = new float3(0);
-
-            // if (hitSomething) {
-            //     // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
-            //     // Filter it through its material model
-
-            //     Ray3f subRay;
-            //     bool scattered = Scatter(ray, hit, ref rng, fibs, out subRay, eps);
-            //     if (scattered) {
-            //         light = TraceRecursive(subRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
-            //     }
-            //     light = BRDF(hit, light);
-            // } else {
-            //     // We see sunlight, just send that back through the path traversed
-
-            //     float t = 0.5f * (ray.direction.y + 1f);
-            //     light = (1f - t) * new float3(1f) + t * scene.LightColor;
-            // }
-
-            // return light;
+            return light;
         }
 
-        public static bool Scatter(Ray3f ray, HitRecord hit, ref Random rng, NativeArray<float3> fibs, out Ray3f scattered, float eps) {
+        public static bool Scatter(Ray3f ray, HitRecord hit, ref Random rng, NativeArray<float3> fibs, out Ray3f scattered) {
+            const float eps = 0.0001f;
+
             const float refIdx = 1.5f;
+            
 
             switch (hit.material.Type) {
                 case MaterialType.Dielectric: {
@@ -374,8 +368,8 @@ namespace Tracing {
                             cosine = -math.dot(ray.direction, hit.normal);
                         }
 
-                        float3 refracted;
                         float reflectProb = 1f;
+                        float3 refracted;
                         if (Refract(ray.direction, outwardNormal, nint, out refracted)) {
                             reflectProb = Schlick(cosine, refIdx);
                         }
@@ -468,14 +462,6 @@ namespace Tracing {
                 default:
                     return light * hit.material.Albedo;
             }
-        }
-    }
-
-    [BurstCompile]
-    public struct ClearJob : IJobParallelFor {
-        public NativeArray<float3> Buffer;
-        public void Execute(int i) {
-            Buffer[i] = 0f;
         }
     }
 }

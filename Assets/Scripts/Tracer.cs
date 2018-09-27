@@ -17,6 +17,9 @@ Distance field has different properties than classic intersection
 and will leave it very slowly even though it will never hit it.
 - Scatter function should know that inside sphere means negative dist
 - viewpoints and rays parallel to surfaces wil ruin performance
+
+If we have a cheap measure of the **field gradient**, we can more easily
+escape the gravitational pull of nearby geometry we'll never hit.
 */
 
 namespace Tracing {
@@ -46,7 +49,7 @@ namespace Tracing {
         {
             tMin = 0,
             tMax = 1000,
-            RaysPerPixel = 128,
+            RaysPerPixel = 8,
             MaxDepth = 32,
         };
 
@@ -181,6 +184,14 @@ namespace Tracing {
         }
 
         [BurstCompile]
+        public struct ClearJob : IJobParallelFor {
+            public NativeArray<float3> Buffer;
+            public void Execute(int i) {
+                Buffer[i] = new float3(0f);
+            }
+        }
+
+        [BurstCompile]
         private struct TraceJob : IJobParallelFor {
             [ReadOnly] public Scene Scene;
             [ReadOnly] public Camera Camera;
@@ -193,7 +204,7 @@ namespace Tracing {
             public void Execute(int i) {
                 var rng = new Unity.Mathematics.Random(14387 + ((uint)i * 7));
 
-                var screenPos = Math.ToNormalizedCoords((uint)i, Quality.Resolution);
+                var screenPos = Math.ToXYFloat((uint)i, Quality.Resolution);
                 float3 pixel = new float3(0f);
 
                 ushort rayCount = 0;
@@ -229,8 +240,9 @@ namespace Tracing {
                 // Filter it through its material model
 
                 Ray3f nextRay;
-                bool scattered = Trace.Scatter(ray, hit, ref rng, fibs, out nextRay, 0.002f);
+                bool scattered = Trace.Scatter(ray, hit, ref rng, fibs, out nextRay);
                 if (scattered) {
+                    nextRay.origin += hit.normal * 0.1f; // Todo: this is a silly way to avoid depth traps, use gradient information
                     light = TraceRecursive(nextRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
                 }
                 light = Trace.BRDF(hit, light);
@@ -269,7 +281,7 @@ namespace Tracing {
 
                 if (closestDist < EPS) {
                     var sph = scene.Spheres[closestIdx];
-                    hit.distance = totalDist;
+                    hit.t = totalDist;
                     hit.point = p;
                     hit.normal = (p-sph.Center) / sph.Radius;
                     hit.material = sph.Material;

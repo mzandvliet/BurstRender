@@ -7,22 +7,18 @@ namespace Ramjet {
         public const float Tau = 6.2831853071795864769f;
         public const float Pi = Tau / 2f;
 
-        public static float2 ToNormalizedCoords(uint screenIdx, uint2 resolution) {
+        public static float2 ToXYFloat(uint screenIdx, uint2 resolution) {
             return new float2(
-                (screenIdx % resolution.x), // Bug: wait what, no normalize?
-                (screenIdx / resolution.x)
+                screenIdx % resolution.x,
+                screenIdx / resolution.x
             );
         }
 
-        public static uint2 To2DCoords(uint screenIdx, uint2 resolution) {
+        public static uint2 ToXY(uint screenIdx, uint2 resolution) {
             return new uint2(
-                (screenIdx % resolution.x),
-                (screenIdx / resolution.x)
+                screenIdx % resolution.x,
+                screenIdx / resolution.x
             );
-        }
-        
-        public static uint To1Dindex(uint2 coord, uint2 resolution) {
-            return coord.y * resolution.x + coord.x;
         }
 
         public static float3 RandomInUnitDisk(ref Random rng) {
