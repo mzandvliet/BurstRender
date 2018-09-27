@@ -68,7 +68,7 @@ namespace Tracing {
         private int _totalPixels;
 
         private void Awake() {
-            const uint vertResolution = 512;
+            const uint vertResolution = 256;
             const float aspect = 21f / 9f;
             const float vfov = 25f;
             const float aperture = 0.1f;
@@ -100,6 +100,10 @@ namespace Tracing {
             for (int i = 0; i < _jobsPerFrame; i++) {
                 _renderTargets[i] = new NativeArray<RenderResult>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             }
+            _normalBuffers = new NativeArray<float3>[_jobsPerFrame];
+            for (int i = 0; i < _jobsPerFrame; i++) {
+                _normalBuffers[i] = new NativeArray<float3>(32, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            }
         }
 
         private void OnDestroy() {
@@ -109,6 +113,7 @@ namespace Tracing {
 
             for (int i = 0; i < _jobsPerFrame; i++) {
                 _renderTargets[i].Dispose();
+                _normalBuffers[i].Dispose();
             }
         }
 
@@ -141,6 +146,7 @@ namespace Tracing {
 
         private NativeQueue<TraceJobHandle> _handles;
         private NativeArray<RenderResult>[] _renderTargets;
+        private NativeArray<float3>[] _normalBuffers;
         private int _pixelIndex;
         private bool _isRendering;
         private ulong _rayCount;
@@ -166,7 +172,7 @@ namespace Tracing {
             }
 
             for (int i = 0; i < _jobsPerFrame; i++) {
-                var tj = CreateTraceJob(_pixelIndex, _renderTargets[i]);
+                var tj = CreateTraceJob(_pixelIndex, _renderTargets[i], _normalBuffers[i]);
 
                 var h = new TraceJobHandle();
                 h.RenderTargetIndex = i;
@@ -175,6 +181,10 @@ namespace Tracing {
                 _handles.Enqueue(h);
 
                 _pixelIndex++;
+
+                if (_pixelIndex >= _totalPixels) {
+                    break;
+                }
             }
             JobHandle.ScheduleBatchedJobs();
         }
@@ -218,7 +228,7 @@ namespace Tracing {
             GUILayout.Label("Pixel: " + _pixelIndex);
         }
 
-        private TraceJob CreateTraceJob(int pixelIndex, NativeArray<RenderResult> renderTarget) {
+        private TraceJob CreateTraceJob(int pixelIndex, NativeArray<RenderResult> renderTarget, NativeArray<float3> normals) {
             var tj = new TraceJob();
             tj.Fibs = _fibs;
             tj.Scene = _scene;
@@ -226,6 +236,7 @@ namespace Tracing {
             tj.Quality = _quality;
             tj.PixelIndex = pixelIndex;
             tj.RenderResult = renderTarget;
+            tj.normals = normals;
             return tj;
         }
 
@@ -244,28 +255,51 @@ namespace Tracing {
 
             [WriteOnly] public NativeArray<RenderResult> RenderResult; // Would be nice if we could write these and read on main thread
 
+            public NativeArray<float3> normals;
+
             public void Execute() {
                 var rng = new Unity.Mathematics.Random(14387 + ((uint)PixelIndex * 7));
-
                 var screenPos = Math.ToXYFloat((uint)PixelIndex, Quality.Resolution);
-                float3 pixel = new float3(0f);
 
                 ushort rayCount = 0;
 
-                for (int r = 0; r < Quality.RaysPerPixel; r++) {
-                    float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
+                float2 jitter = new float2(0f);
+                for (int r = 0; r < normals.Length; r++) {
+                    normals[r] = 0f;
+
                     float2 p = (screenPos + jitter) / (float2)Quality.Resolution;
                     var ray = Camera.GetRay(p, ref rng);
-                    pixel += Trace.TraceRecursive(ray, Scene, ref rng, Fibs, 0, Quality.MaxDepth, ref rayCount);
+                    float3 n;
+                    if (Trace(ray, Scene, ref rng, Fibs, out n)) {
+                        normals[r] = n;
+                    }
+
+                    jitter = new float2(rng.NextFloat(), rng.NextFloat());
                 }
 
-                pixel = math.sqrt(pixel / (float)(Quality.RaysPerPixel));
+                float div = 0;
+                for (int r = 1; r < normals.Length; r++) {
+                    div += 1f - math.max(0f, math.dot(normals[0], normals[r]));
+                }
+                div /= (float)(normals.Length-1);
 
                 RenderResult[0] = new RenderResult {
-                    Color = new Color(pixel.x, pixel.y, pixel.z, 1f),
+                    Color = new Color(div, div, div, 1f),
                     RayCount = rayCount
                 };
             }
+        }
+
+        private static bool Trace(Ray3f ray, Scene scene, ref Random rng, NativeArray<float3> fibs, out float3 normal) {
+            HitRecord hit;
+
+            const float tMin = 0f;
+            const float tMax = 1000f;
+
+            bool hitSomething = Intersect.Scene(scene, ray, tMin, tMax, out hit);
+            normal = hit.normal;
+
+            return hitSomething;
         }
 
         private struct TraceJobQuality {
@@ -324,7 +358,7 @@ namespace Tracing {
                     if (hitSomething) {
                         Gizmos.DrawLine(ray.origin, hit.point);
                         Ray3f subRay;
-                        if (!Trace.Scatter(ray, hit, ref rng, _fibs, out subRay)) {
+                        if (!Tracing.Trace.Scatter(ray, hit, ref rng, _fibs, out subRay)) {
                             break;
                         }
                         ray = subRay;
