@@ -60,15 +60,15 @@ namespace Tracing {
         private TraceJobQuality _quality = new TraceJobQuality() {
             tMin = 0,
             tMax = 1000,
-            RaysPerPixel = 2,
-            MaxDepth = 8,
+            RaysPerPixel = 8,
+            MaxDepth = 16,
         };
 
         private Texture2D _tex;
         private int _totalPixels;
 
         private void Awake() {
-            const uint vertResolution = 16;
+            const uint vertResolution = 64;
             const float aspect = 21f / 9f;
             const float vfov = 25f;
             const float aperture = 0.1f;
@@ -96,9 +96,9 @@ namespace Tracing {
             _tex.filterMode = FilterMode.Point;
 
             _handles = new NativeQueue<TraceJobHandle>(Allocator.Persistent);
-            _renderTargets = new NativeArray<Color>[_jobsPerFrame];
+            _renderTargets = new NativeArray<RenderResult>[_jobsPerFrame];
             for (int i = 0; i < _jobsPerFrame; i++) {
-                _renderTargets[i] = new NativeArray<Color>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                _renderTargets[i] = new NativeArray<RenderResult>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             }
         }
 
@@ -140,7 +140,7 @@ namespace Tracing {
         }
 
         private NativeQueue<TraceJobHandle> _handles;
-        private NativeArray<Color>[] _renderTargets;
+        private NativeArray<RenderResult>[] _renderTargets;
         private int _pixelIndex;
         private bool _isRendering;
         private ulong _rayCount;
@@ -189,7 +189,9 @@ namespace Tracing {
                 h.JobHandle.Complete();
 
                 var pixCoords = Math.ToXY((uint)h.PixelIndex, _quality.Resolution);
-                _tex.SetPixel((int)pixCoords.x, (int)pixCoords.y, _renderTargets[h.RenderTargetIndex][0]);
+                var result = _renderTargets[h.RenderTargetIndex][0];
+                _tex.SetPixel((int)pixCoords.x, (int)pixCoords.y, result.Color);
+                _rayCount += result.RayCount;
             }
 
             _tex.Apply();
@@ -216,15 +218,20 @@ namespace Tracing {
             GUILayout.Label("Pixel: " + _pixelIndex);
         }
 
-        private TraceJob CreateTraceJob(int pixelIndex, NativeArray<Color> renderTarget) {
+        private TraceJob CreateTraceJob(int pixelIndex, NativeArray<RenderResult> renderTarget) {
             var tj = new TraceJob();
             tj.Fibs = _fibs;
             tj.Scene = _scene;
             tj.Camera = _camera;
             tj.Quality = _quality;
             tj.PixelIndex = pixelIndex;
-            tj.RenderTarget = renderTarget;
+            tj.RenderResult = renderTarget;
             return tj;
+        }
+
+        private struct RenderResult {
+            public Color Color;
+            public uint RayCount;
         }
 
         [BurstCompile]
@@ -235,7 +242,7 @@ namespace Tracing {
             [ReadOnly] public TraceJobQuality Quality;
             [ReadOnly] public int PixelIndex;
 
-            [WriteOnly] public NativeArray<Color> RenderTarget;
+            [WriteOnly] public NativeArray<RenderResult> RenderResult; // Would be nice if we could write these and read on main thread
 
             public void Execute() {
                 var rng = new Unity.Mathematics.Random(14387 + ((uint)PixelIndex * 7));
@@ -253,7 +260,11 @@ namespace Tracing {
                 }
 
                 pixel = math.sqrt(pixel / (float)(Quality.RaysPerPixel));
-                RenderTarget[0] = new Color(pixel.x, pixel.y, pixel.z, 1f);
+
+                RenderResult[0] = new RenderResult {
+                    Color = new Color(pixel.x, pixel.y, pixel.z, 1f),
+                    RayCount = rayCount
+                };
             }
         }
 
