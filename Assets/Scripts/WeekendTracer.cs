@@ -54,28 +54,20 @@ namespace Tracing {
 
         private ClearJob _clear;
 
-        private const int _jobsPerFrame = 1024;
+        private const int _maxJobsPerFrame = 1024;
 
+        private NativeArray<float3> _buffer;
 
-        private TraceJobQuality _quality = new TraceJobQuality() {
-            tMin = 0,
-            tMax = 1000,
-            RaysPerPixel = 512,
-            MaxDepth = 64,
-        };
+        int2 resolution = new int2(128,128);
+        const float aspect = 1;//21f / 9f;
+        const float vfov = 25f;
+        const float aperture = 0.1f;
 
         private Texture2D _tex;
-        private int _totalPixels;
+
+
 
         private void Awake() {
-            const uint vertResolution = 512;
-            const float aspect = 21f / 9f;
-            const float vfov = 25f;
-            const float aperture = 0.1f;
-
-            uint horiResolution = (uint)math.round(vertResolution * aspect);
-            _quality.Resolution = new uint2(horiResolution, vertResolution);
-
             var position = new float3(-3f, 1f, -2f);
             var lookDir = new float3(0, 0, 1) - position;
             var focus = math.length(lookDir);
@@ -84,22 +76,21 @@ namespace Tracing {
             _camera.Position = position;
             _camera.Rotation = rotation;
 
-            _totalPixels = (int)(_quality.Resolution.x * _quality.Resolution.y);
-            Debug.Log("Resolution = " + _quality.Resolution + ", total pixels: " + _totalPixels);
+            int totalPixels = (int)(resolution.x * resolution.y);
+            Debug.Log("Resolution = " + resolution + ", total pixels: " + totalPixels);
 
             _scene = MakeScene();
 
             _fibs = new NativeArray<float3>(4096, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             Math.GenerateFibonacciSphere(_fibs);
 
-            _tex = new Texture2D((int)_quality.Resolution.x, (int)_quality.Resolution.y, TextureFormat.ARGB32, false, true);
-            _tex.filterMode = FilterMode.Point;
-
             _handles = new NativeQueue<TraceJobHandle>(Allocator.Persistent);
-            _renderTargets = new NativeArray<RenderResult>[_jobsPerFrame];
-            for (int i = 0; i < _jobsPerFrame; i++) {
+            _renderTargets = new NativeArray<RenderResult>[_maxJobsPerFrame];
+            for (int i = 0; i < _maxJobsPerFrame; i++) {
                 _renderTargets[i] = new NativeArray<RenderResult>(1, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             }
+
+            _buffer = new NativeArray<float3>(totalPixels, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         }
 
         private void OnDestroy() {
@@ -107,9 +98,10 @@ namespace Tracing {
             _fibs.Dispose();
             _handles.Dispose();
 
-            for (int i = 0; i < _jobsPerFrame; i++) {
+            for (int i = 0; i < _maxJobsPerFrame; i++) {
                 _renderTargets[i].Dispose();
             }
+            _buffer.Dispose();
         }
 
         private static Scene MakeScene() {
@@ -139,8 +131,12 @@ namespace Tracing {
             StartRender();
         }
 
+        
         private NativeQueue<TraceJobHandle> _handles;
         private NativeArray<RenderResult>[] _renderTargets;
+
+        private int _mipLevel;
+        private RenderPass _pass;
         private int _pixelIndex;
         private bool _isRendering;
         private ulong _rayCount;
@@ -155,18 +151,58 @@ namespace Tracing {
             }
 
             _isRendering = true;
-            _pixelIndex = 0;
-
             _watch = System.Diagnostics.Stopwatch.StartNew();
+
+            StartRenderPass(8);
         }
+
+        private void CompleteRender() {
+            _isRendering = false;
+
+            _watch.Stop();
+            Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms, Num Rays: " + _rayCount);
+            Debug.Log("That's about " + (_rayCount / (_watch.ElapsedMilliseconds / 1000.0d)) / 1000000.0d + " MRay/sec");
+
+            if (_saveImage) {
+                Util.ExportImage(_tex, _saveFolder);
+            }
+        }
+
+        private void StartRenderPass(int mipLevel) {
+            Debug.Log("Starting mip level pass: " + mipLevel);
+            _mipLevel = mipLevel;
+            _pixelIndex = 0;
+            _pass = new RenderPass(new int2(resolution.x / mipLevel, resolution.x / mipLevel));
+        }
+
+        private void CompleteRenderPass() {
+            _tex = new Texture2D((int)_pass.Resolution.x, (int)_pass.Resolution.y, TextureFormat.ARGB32, false, true);
+            _tex.filterMode = FilterMode.Point;
+
+            Util.ToTexture2D(_buffer, _tex, _pass.Resolution);
+
+            if (_mipLevel > 1) {
+                StartRenderPass(_mipLevel-1);
+            }
+        }
+
+        
 
         private void Update() {
             if (!_isRendering) {
                 return;
             }
 
-            for (int i = 0; i < _jobsPerFrame; i++) {
-                var tj = CreateTraceJob(_pixelIndex, _renderTargets[i]);
+            for (int i = 0; _pixelIndex < _pass.TotalPixels && i < _maxJobsPerFrame; i++) {
+                var tj = new TraceJob();
+                tj.Fibs = _fibs;
+                tj.Scene = _scene;
+                tj.Camera = _camera;
+                tj.Resolution = _pass.Resolution;
+                tj.RaysPerPixel = 8;
+                tj.MaxDepth = 8;
+                tj.PixelIndex = _pixelIndex;
+                tj.RenderResult = _renderTargets[i];
 
                 var h = new TraceJobHandle();
                 h.RenderTargetIndex = i;
@@ -188,49 +224,35 @@ namespace Tracing {
                 var h = _handles.Dequeue();
                 h.JobHandle.Complete();
 
-                var pixCoords = Math.ToXY((uint)h.PixelIndex, _quality.Resolution);
+                var pixCoords = Math.ToXY(h.PixelIndex, _pass.Resolution);
                 var result = _renderTargets[h.RenderTargetIndex][0];
-                _tex.SetPixel((int)pixCoords.x, (int)pixCoords.y, result.Color);
+                _buffer[h.PixelIndex] = result.Color;
                 _rayCount += result.RayCount;
             }
 
-            _tex.Apply();
-
-            if (_pixelIndex >= _totalPixels) {
-                CompleteRender();
-            }
-        }
-
-        private void CompleteRender() {
-            _isRendering = false;
-
-            _watch.Stop();
-            Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms, Num Rays: " + _rayCount);
-            Debug.Log("That's about " + (_rayCount / (_watch.ElapsedMilliseconds / 1000.0d)) / 1000000.0d + " MRay/sec");
-
-            if (_saveImage) {
-                Util.ExportImage(_tex, _saveFolder);
+            if (_pixelIndex >= _pass.TotalPixels) {
+                CompleteRenderPass();
             }
         }
 
         private void OnGUI() {
-            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), _tex, ScaleMode.ScaleToFit);
-            GUILayout.Label("Pixel: " + _pixelIndex);
+            if (_tex != null) {
+                GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), _tex, ScaleMode.ScaleToFit);
+            }
         }
 
-        private TraceJob CreateTraceJob(int pixelIndex, NativeArray<RenderResult> renderTarget) {
-            var tj = new TraceJob();
-            tj.Fibs = _fibs;
-            tj.Scene = _scene;
-            tj.Camera = _camera;
-            tj.Quality = _quality;
-            tj.PixelIndex = pixelIndex;
-            tj.RenderResult = renderTarget;
-            return tj;
+        private struct RenderPass {
+            public int2 Resolution;
+            public int TotalPixels;
+
+            public RenderPass(int2 resolution) {
+                Resolution = resolution;
+                TotalPixels = (int)(resolution.x * resolution.y);
+            }
         }
 
         private struct RenderResult {
-            public Color Color;
+            public float3 Color;
             public uint RayCount;
         }
 
@@ -239,7 +261,9 @@ namespace Tracing {
             [ReadOnly] public Scene Scene;
             [ReadOnly] public NativeArray<float3> Fibs;
             [ReadOnly] public Camera Camera;
-            [ReadOnly] public TraceJobQuality Quality;
+            [ReadOnly] public int2 Resolution;
+            [ReadOnly] public int RaysPerPixel;
+            [ReadOnly] public int MaxDepth;
             [ReadOnly] public int PixelIndex;
 
             [WriteOnly] public NativeArray<RenderResult> RenderResult; // Would be nice if we could write these and read on main thread
@@ -247,17 +271,17 @@ namespace Tracing {
             public void Execute() {
                 var rng = new Unity.Mathematics.Random(14387 + ((uint)PixelIndex * 7));
 
-                var screenPos = Math.ToXYFloat((uint)PixelIndex, Quality.Resolution);
+                var screenPos = Math.ToXYFloat(PixelIndex, Resolution);
                 float3 pixel = new float3(0f);
 
                 ushort rayCount = 0;
 
-                for (int r = 0; r < Quality.RaysPerPixel; r++) {
+                for (int r = 0; r < RaysPerPixel; r++) {
                     float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
-                    float2 p = (screenPos + jitter) / (float2)Quality.Resolution;
+                    float2 p = (screenPos + jitter) / (float2)Resolution;
                     var ray = Camera.GetRay(p, ref rng);
 
-                    pixel += Trace.TraceRecursive(ray, Scene, ref rng, Fibs, 0, Quality.MaxDepth, ref rayCount);
+                    pixel += Trace.TraceRecursive(ray, Scene, ref rng, Fibs, 0, MaxDepth, ref rayCount);
 
                     // float3 col = new float3(1f);
                     // ushort t = 0;
@@ -270,21 +294,13 @@ namespace Tracing {
                     // rayCount += t;
                 }
 
-                pixel = math.sqrt(pixel / (float)Quality.RaysPerPixel);
+                pixel = math.sqrt(pixel / (float)RaysPerPixel);
 
                 RenderResult[0] = new RenderResult {
-                    Color = new Color(pixel.x, pixel.y, pixel.z, 1f),
+                    Color = pixel,
                     RayCount = rayCount
                 };
             }
-        }
-
-        private struct TraceJobQuality {
-            public uint2 Resolution;
-            public float tMin;
-            public float tMax;
-            public int RaysPerPixel;
-            public int MaxDepth;
         }
 
         private struct TraceJobHandle {
@@ -295,9 +311,19 @@ namespace Tracing {
 
         [BurstCompile]
         public struct ClearJob : IJobParallelFor {
-            public NativeArray<Color> Buffer;
+            public NativeArray<float3> Buffer;
             public void Execute(int i) {
-                Buffer[i] = new Color(0,0,0,1);
+                Buffer[i] = new float3();
+            }
+        }
+
+        [BurstCompile]
+        public struct GradientJob : IJobParallelFor {
+            public int2 Resolution;
+            public NativeArray<float3> Buffer;
+            public void Execute(int i) {
+                var screenPos = Math.ToXY(i, Resolution);
+                // Todo: use kernel to differentiate with neighboring pixels
             }
         }
 
@@ -306,10 +332,9 @@ namespace Tracing {
                 return;
             }
 
-            uint i = _quality.Resolution.x * (_quality.Resolution.y / 2) + _quality.Resolution.x / 2;
-            var rng = new Unity.Mathematics.Random(14387 + ((uint)i * 7));
+            var rng = new Unity.Mathematics.Random(14387);
 
-            var screenPos = Math.ToXY(i, _quality.Resolution);
+            var screenPos = new float2(0);
             float3 pixel = new float3(0f);
 
             Gizmos.color = new Color(1f, 1f, 1f, 0.5f);
@@ -318,13 +343,13 @@ namespace Tracing {
             }
 
             for (int r = 0; r < 16; r++) {
-                Gizmos.color = Color.HSVToRGB(r / (float)_quality.RaysPerPixel, 0.7f, 0.5f);
-                float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
-                float2 p = (screenPos + jitter) / (float2)_quality.Resolution;
+                Gizmos.color = Color.HSVToRGB(r / 8f, 0.7f, 0.5f);
+                float2 jitter = new float2(rng.NextFloat(), rng.NextFloat() / 16f);
+                float2 p = (screenPos + jitter);
 
                 var ray = _camera.GetRay(p, ref rng);
 
-                for (int t = 0; t < _quality.MaxDepth; t++) {
+                for (int t = 0; t < 8; t++) {
                     const float tMin = 0f;
                     const float tMax = 1000f;
 

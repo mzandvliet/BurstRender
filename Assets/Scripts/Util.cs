@@ -3,7 +3,9 @@ using Unity.Mathematics;
 using UnityEngine;
 
 public static class Util {
-    public static void ToTexture2D(NativeArray<float3> screen, Color[] colors, Texture2D tex, uint2 resolution) {
+    public static void ToTexture2D(NativeArray<float3> screen, Texture2D tex, int2 resolution) {
+        Color[] colors = new Color[screen.Length];
+
         for (int i = 0; i < screen.Length; i++) {
             var c = screen[i];
             colors[i] = new Color(c.x, c.y, c.z, 1f);

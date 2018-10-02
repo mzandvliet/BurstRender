@@ -7,15 +7,15 @@ namespace Ramjet {
         public const float Tau = 6.2831853071795864769f;
         public const float Pi = Tau / 2f;
 
-        public static float2 ToXYFloat(uint screenIdx, uint2 resolution) {
+        public static float2 ToXYFloat(int screenIdx, int2 resolution) {
             return new float2(
                 screenIdx % resolution.x,
                 screenIdx / resolution.x
             );
         }
 
-        public static uint2 ToXY(uint screenIdx, uint2 resolution) {
-            return new uint2(
+        public static int2 ToXY(int screenIdx, int2 resolution) {
+            return new int2(
                 screenIdx % resolution.x,
                 screenIdx / resolution.x
             );

@@ -53,17 +53,16 @@ namespace Tracing {
             MaxDepth = 32,
         };
 
-        private Color[] _colors;
         private Texture2D _tex;
 
         private void Awake() {
-            const uint vertResolution = 512;
+            const int vertResolution = 512;
             const float aspect = 16f / 9f;
             const float vfov = 50f;
             const float aperture = 0.002f;
 
-            uint horiResolution = (uint)math.round(vertResolution * aspect);
-            _fullQuality.Resolution = new uint2(horiResolution, vertResolution);
+            int horiResolution = (int)math.round(vertResolution * aspect);
+            _fullQuality.Resolution = new int2(horiResolution, vertResolution);
             _debugQuality.Resolution = _fullQuality.Resolution;
 
             var position = new float3(0f, 1f, -2f);
@@ -93,7 +92,6 @@ namespace Tracing {
             _trace.Scene = _scene;
             _trace.RayCounter = new NativeArray<ulong>(1, Allocator.Persistent, NativeArrayOptions.ClearMemory);
 
-            _colors = new Color[totalPixels];
             _tex = new Texture2D((int)_fullQuality.Resolution.x, (int)_fullQuality.Resolution.y, TextureFormat.ARGB32, false, true);
             _tex.filterMode = FilterMode.Point;
         }
@@ -175,7 +173,7 @@ namespace Tracing {
             _watch.Stop();
             Debug.Log("Done! Time taken: " + _watch.ElapsedMilliseconds + "ms, Num Rays: " + _trace.RayCounter[0]);
             Debug.Log("That's about " + (_trace.RayCounter[0] / (_watch.ElapsedMilliseconds / 1000.0d)) / 1000000.0d + " MRay/sec");
-            Util.ToTexture2D(_screen, _colors, _tex, _fullQuality.Resolution);
+            Util.ToTexture2D(_screen, _tex, _fullQuality.Resolution);
             _renderHandle = null;
         }
 
@@ -204,7 +202,7 @@ namespace Tracing {
             public void Execute(int i) {
                 var rng = new Unity.Mathematics.Random(14387 + ((uint)i * 7));
 
-                var screenPos = Math.ToXYFloat((uint)i, Quality.Resolution);
+                var screenPos = Math.ToXYFloat(i, Quality.Resolution);
                 float3 pixel = new float3(0f);
 
                 ushort rayCount = 0;
@@ -299,7 +297,7 @@ namespace Tracing {
         }
 
         private struct TraceJobQuality {
-            public uint2 Resolution;
+            public int2 Resolution;
             public float tMin;
             public float tMax;
             public int RaysPerPixel;
