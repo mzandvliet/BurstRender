@@ -67,7 +67,7 @@ namespace Weekend {
         private TraceJobQuality _fullQuality = new TraceJobQuality() {
             tMin = 0,
             tMax = 1000,
-            RaysPerPixel = 128,
+            RaysPerPixel = 512,
             MaxDepth = 64,
         };
 
@@ -75,7 +75,7 @@ namespace Weekend {
         private Texture2D _tex;
 
         private void Awake() {
-            const uint vertResolution = 1080;
+            const uint vertResolution = 512;
             const float aspect = 21f / 9f;
             const float vfov = 25f;
             const float aperture = 0.1f;
@@ -153,8 +153,8 @@ namespace Weekend {
             CompleteRender();
 
             // Now do a full-quality render
-            // _trace.Quality = _fullQuality;
-            // StartRender();
+            _trace.Quality = _fullQuality;
+            StartRender();
         }
 
         private void Update() {
@@ -193,8 +193,6 @@ namespace Weekend {
 
                 var ray = _camera.GetRay(p, ref rng);
 
-                float reflectProb = 1f;
-
                 for (int t = 0; t < _trace.Quality.MaxDepth; t++) {
                     const float tMin = 0f;
                     const float tMax = 1000f;
@@ -204,9 +202,9 @@ namespace Weekend {
                     HitRecord hit;
                     bool hitSomething = Intersect.Scene(_scene, ray, tMin, tMax, out hit);
                     if (hitSomething) {
-                        Gizmos.color = new Color(reflectProb, reflectProb, reflectProb);
                         Gizmos.DrawLine(ray.origin, hit.point);
                         Ray3f subRay;
+                        float reflectProb = 1f;
                         if (!Trace.Scatter(ray, hit, ref rng, _trace.Fibs, out subRay, out reflectProb)) {
                             break;
                         }
