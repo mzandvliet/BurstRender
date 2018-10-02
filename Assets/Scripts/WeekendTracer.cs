@@ -270,7 +270,7 @@ namespace Tracing {
                     // rayCount += t;
                 }
 
-                pixel = math.sqrt(pixel / (float)rayCount);
+                pixel = math.sqrt(pixel / (float)Quality.RaysPerPixel);
 
                 RenderResult[0] = new RenderResult {
                     Color = new Color(pixel.x, pixel.y, pixel.z, 1f),
