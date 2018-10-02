@@ -312,11 +312,6 @@ namespace Tracing {
         public static float3 TraceRecursive(Ray3f ray, Scene scene, ref Random rng, NativeArray<float3> fibs, int depth, int maxDepth, ref ushort rayCount) {
             HitRecord hit;
 
-            if (depth >= maxDepth) {
-                hit = new HitRecord();
-                return new float3(0);
-            }
-
             const float tMin = 0f;
             const float tMax = 1000f;
 
@@ -326,18 +321,13 @@ namespace Tracing {
             float3 light = new float3(0);
 
             if (hitSomething) {
-                // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
-                // Filter it through its material model
-
-                Ray3f subRay;
-                bool scattered = Scatter(ray, hit, ref rng, fibs, out subRay);
-                if (scattered) {
-                    light = TraceRecursive(subRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
+                Ray3f nextRay;
+                bool scattered = Scatter(ray, hit, ref rng, fibs, out nextRay);
+                if (scattered && depth < maxDepth) {
+                    light = TraceRecursive(nextRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
                 }
                 light = BRDF(hit) * light;
             } else {
-                // We see sunlight, just send that back through the path traversed
-
                 float t = 0.5f * (ray.direction.y + 1f);
                 light = (1f - t) * new float3(1f) + t * scene.LightColor;
             }

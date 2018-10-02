@@ -257,18 +257,20 @@ namespace Tracing {
                     float2 p = (screenPos + jitter) / (float2)Quality.Resolution;
                     var ray = Camera.GetRay(p, ref rng);
 
-                    float3 col = new float3(1f);
-                    ushort t = 0;
-                    for (; t < Quality.MaxDepth; t++) {
-                        if (!Trace.TraceStep(ref ray, Scene, ref rng, Fibs, ref col)) {
-                            break;
-                        }
-                    }
-                    pixel += col;
-                    rayCount += t;
+                    pixel += Trace.TraceRecursive(ray, Scene, ref rng, Fibs, 0, Quality.MaxDepth, ref rayCount);
+
+                    // float3 col = new float3(1f);
+                    // ushort t = 0;
+                    // for (; t < Quality.MaxDepth; t++) {
+                    //     if (!Trace.TraceStep(ref ray, Scene, ref rng, Fibs, ref col)) {
+                    //         break;
+                    //     }
+                    // }
+                    // pixel += col;
+                    // rayCount += t;
                 }
 
-                pixel = math.sqrt(pixel / (float)(Quality.RaysPerPixel));
+                pixel = math.sqrt(pixel / (float)rayCount);
 
                 RenderResult[0] = new RenderResult {
                     Color = new Color(pixel.x, pixel.y, pixel.z, 1f),
