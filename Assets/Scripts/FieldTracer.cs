@@ -12,14 +12,10 @@ using Random = Unity.Mathematics.Random;
 /* 
 Todo:
 
-Distance field has different properties than classic intersection
-- After a bounce, ray starts at normal*eps distance from surface,
-and will leave it very slowly even though it will never hit it.
-- Scatter function should know that inside sphere means negative dist
-- viewpoints and rays parallel to surfaces wil ruin performance
-
 If we have a cheap measure of the **field gradient**, we can more easily
 escape the gravitational pull of nearby geometry we'll never hit.
+
+Also: use rational trig and calc to go sqrt-less
 */
 
 namespace Tracing {
@@ -53,7 +49,7 @@ namespace Tracing {
         private Texture2D _tex;
 
         private void Awake() {
-            const int vertResolution = 512;
+            const int vertResolution = 1080;
             const float aspect = 16f / 9f;
             const float vfov = 50f;
             const float aperture = 0.002f;
@@ -63,7 +59,7 @@ namespace Tracing {
             _debugQuality.Resolution = _fullQuality.Resolution;
 
             var position = new float3(10f, 1.5f, -2f);
-            var lookDir = new float3(-12, 1, 10) - position;
+            var lookDir = new float3(12, 1, -10) - position;
             var focus = math.length(lookDir);
             var rotation = quaternion.LookRotation(lookDir / focus, new float3(0, 1, 0));
             _camera = new Camera(vfov, aspect, aperture, focus);
@@ -160,7 +156,7 @@ namespace Tracing {
 
             _renderHandle = new JobHandle();
             _renderHandle = _clear.Schedule(_screen.Length, 32, _renderHandle.Value);
-            _renderHandle = _trace.Schedule(_screen.Length, 32, _renderHandle.Value);
+            _renderHandle = _trace.Schedule(_screen.Length, 8, _renderHandle.Value);
         }
 
         private void CompleteRender() {
@@ -201,25 +197,30 @@ namespace Tracing {
                 var screenPos = Math.ToXYFloat(i, Quality.Resolution);
                 float3 pixel = new float3(0f);
 
-                ushort rayCount = 0;
+                ushort traceCount = 0;
+                ushort usefulRays = 0;
 
                 for (int r = 0; r < Quality.RaysPerPixel; r++) {
                     float2 jitter = new float2(rng.NextFloat(), rng.NextFloat());
                     float2 p = (screenPos + jitter) / (float2)Quality.Resolution;
                     var ray = Camera.GetRay(p, ref rng);
-                    pixel += TraceRecursive(ray, Scene, ref rng, Fibs, 0, Quality.MaxDepth, ref rayCount);
+                    float3 col = TraceRecursive(ray, Scene, ref rng, Fibs, 0, Quality.MaxDepth, ref traceCount);
+                    if (math.lengthsq(col) > 0.00001f) {
+                        pixel += col;
+                        usefulRays++;
+                    }
                 }
 
-                Screen[i] = math.sqrt(pixel / (float)(Quality.RaysPerPixel));
+                Screen[i] = math.sqrt(pixel / (float)usefulRays);
 
-                RayCounter[0] += rayCount; // Todo: atomics, or rather, fix the amount of rays per job run
+                RayCounter[0] += traceCount; // Todo: atomics, or rather, fix the amount of rays per job run
             }
         }
 
         private static float3 TraceRecursive(Ray3f ray, Scene scene, ref Random rng, NativeArray<float3> fibs, int depth, int maxDepth, ref ushort rayCount) {
             HitRecord hit;
 
-            bool hitSomething = IntersectField(ray, scene, 512, 250f, out hit);
+            bool hitSomething = IntersectField(ray, scene, 512, 512f, out hit);
             ++rayCount;
 
             float3 light = new float3(0,0,0);
@@ -316,6 +317,7 @@ namespace Tracing {
 
                 float3 normal = new float3(0,0,1);
                 Material material = new Material();
+                HitSphere(p, ref dist, ref normal, ref material);
                 HitSpheres(p, ref dist, ref normal, ref material);
                 HitFloor(p, ref dist, ref normal, ref material);
 
@@ -334,12 +336,28 @@ namespace Tracing {
             return false;
         }
 
+        private static void HitSphere(float3 p, ref float curDist, ref float3 normal, ref Material mat) {
+            float3 spherePos = new float3(0f, 21f, -40f);
+            float sphereRad = 20f;
+            float3 pos = p - spherePos;
+
+            float dist = SDF.Sphere(pos, sphereRad);
+
+            if (dist < curDist) {
+                curDist = dist;
+                normal = pos / sphereRad;
+                mat = new Material(MaterialType.Metal, new float3(0.33f));
+            }
+        }
+
         private static void HitSpheres(float3 p, ref float curDist, ref float3 normal, ref Material mat) {
             float interval = 2f;
             
             float3 pos = p + new float3(100f, 0f, 100f);
 
-            // int period = ((int)(pos.x / interval)) % 2;
+            int2 period = new int2(
+                ((int)(pos.x / interval)) % 7,
+                ((int)(pos.z / interval)) % 17);
 
             pos = SDF.ModXZ(pos, new float2(interval, interval)); // Todo: how to make consistent for negative quadrants?
 
@@ -347,21 +365,21 @@ namespace Tracing {
              *  doing the following makes the field discontinuous as the modular boundary is crossed
                 float3 spherePos = new float3(0f, period % 2, 0f);
                 need a different way of thinking about instance parameters in repeated space
+
+                dont' calculate material/color/normal calculation until after hit is found
+                do them in a separate function
              */
 
             float3 spherePos = new float3(0f, 0f, 0f); // location in worldmodxspace
-            float invSphereRad = 1f / 0.5f;
+            float sphereRad = 0.5f;
             pos = pos - spherePos;
 
-            float dist = SDF.Sphere(pos, 0.75f);
+            float dist = SDF.Sphere(pos, sphereRad);
 
             if (dist < curDist) {
                 curDist = dist;
-                normal = pos * invSphereRad;
-                mat = new Material(MaterialType.Metal, new float3(1f, 1f, 1f));
-                // mat = period == 0 ?
-                //     new Material(MaterialType.Metal, new float3(1f, 1f, 1f)) :
-                //     new Material(MaterialType.Lambertian, new float3(.7f, 0.7f, 0.4f));
+                normal = pos / sphereRad;
+                mat = new Material(MaterialType.Metal, new float3(period.x / 7f, 0.75f, period.y / 17f));
             }
         }
 
