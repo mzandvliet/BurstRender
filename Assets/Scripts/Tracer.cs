@@ -245,7 +245,7 @@ namespace Tracing {
                     nextRay.origin += hit.normal * 0.1f; // Todo: this is a silly way to avoid depth traps, use gradient information
                     light = TraceRecursive(nextRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
                 }
-                light = Trace.BRDF(hit, light);
+                light = Trace.BRDF(hit) * light;
             } else {
                 // We see sunlight, just send that back through the path traversed
 

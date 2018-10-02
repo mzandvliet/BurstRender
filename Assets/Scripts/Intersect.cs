@@ -334,7 +334,7 @@ namespace Tracing {
                 if (scattered) {
                     light = TraceRecursive(subRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
                 }
-                light = BRDF(hit, light);
+                light = BRDF(hit) * light;
             } else {
                 // We see sunlight, just send that back through the path traversed
 
@@ -345,11 +345,36 @@ namespace Tracing {
             return light;
         }
 
+        public static bool TraceStep(ref Ray3f ray, Scene scene, ref Random rng, NativeArray<float3> fibs, ref float3 color) {
+            HitRecord hit;
+
+            const float tMin = 0f;
+            const float tMax = 1000f;
+
+            bool hitSomething = Intersect.Scene(scene, ray, tMin, tMax, out hit);
+
+            if (hitSomething) {
+                color *= BRDF(hit);
+
+                Ray3f nextRay;
+                bool scattered = Scatter(ray, hit, ref rng, fibs, out nextRay);
+                if (scattered) {
+                    ray = nextRay;
+                    return true;
+                }
+                return false;
+            } else {
+                float t = 0.5f * (ray.direction.y + 1f);
+                float3 light = (1f - t) * new float3(1f) + t * scene.LightColor;
+                color = light * color;
+                return false;
+            }
+        }
+
         public static bool Scatter(Ray3f ray, HitRecord hit, ref Random rng, NativeArray<float3> fibs, out Ray3f scattered) {
             const float eps = 0.0001f;
 
             const float refIdx = 1.5f;
-            
 
             switch (hit.material.Type) {
                 case MaterialType.Dielectric: {
@@ -452,15 +477,15 @@ namespace Tracing {
             return r0 + (1f - r0) * math.pow(1f - cosine, 5f);
         }
 
-        public static float3 BRDF(HitRecord hit, float3 light) {
+        public static float3 BRDF(HitRecord hit) {
             switch (hit.material.Type) {
                 case MaterialType.Dielectric:
-                    return light;
+                    return new float3(1f);
                 case MaterialType.Metal:
-                    return light * hit.material.Albedo;
+                    return hit.material.Albedo;
                 case MaterialType.Lambertian:
                 default:
-                    return light * hit.material.Albedo;
+                    return hit.material.Albedo;
             }
         }
     }
