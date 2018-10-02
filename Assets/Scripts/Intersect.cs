@@ -398,7 +398,6 @@ namespace Tracing {
                         return true;
                     }
                 case MaterialType.Metal: {
-                        // Todo: false if dot(reflected, normal) < 0
                         float3 transmitted = math.reflect(ray.direction, hit.normal);
                         transmitted += fibs[rng.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
                         transmitted = math.normalize(transmitted);

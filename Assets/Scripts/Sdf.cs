@@ -16,5 +16,13 @@ namespace Tracing {
             return math.lengthsq(localPos) - rad * rad <= 0f;
 
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float3 ModXZ(float3 localPos, float2 v) {
+            return new float3(
+                localPos.x % v.x- 0.5f * v.x,
+                localPos.y,
+                localPos.z % v.y - 0.5f * v.y);
+        }
     }
 }

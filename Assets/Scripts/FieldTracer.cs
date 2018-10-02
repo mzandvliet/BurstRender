@@ -23,7 +23,8 @@ escape the gravitational pull of nearby geometry we'll never hit.
 */
 
 namespace Tracing {
-    public class Tracer : MonoBehaviour {
+    public class FieldTracer : MonoBehaviour {
+        [SerializeField] private bool _renderHighQuality;
         [SerializeField] private bool _drawDebugRays;
         [SerializeField] private bool _saveImage;
         [SerializeField] private string _saveFolder = "C:\\Users\\Martijn\\Desktop\\weekendtracer\\";
@@ -39,17 +40,13 @@ namespace Tracing {
 
         private TraceJobQuality _debugQuality = new TraceJobQuality()
         {
-            tMin = 0,
-            tMax = 1000,
             RaysPerPixel = 1,
             MaxDepth = 2,
         };
 
         private TraceJobQuality _fullQuality = new TraceJobQuality()
         {
-            tMin = 0,
-            tMax = 1000,
-            RaysPerPixel = 8,
+            RaysPerPixel = 64,
             MaxDepth = 32,
         };
 
@@ -65,8 +62,8 @@ namespace Tracing {
             _fullQuality.Resolution = new int2(horiResolution, vertResolution);
             _debugQuality.Resolution = _fullQuality.Resolution;
 
-            var position = new float3(0f, 1f, -2f);
-            var lookDir = new float3(0, 0, 0) - position;
+            var position = new float3(10f, 1.5f, -2f);
+            var lookDir = new float3(-12, 1, 10) - position;
             var focus = math.length(lookDir);
             var rotation = quaternion.LookRotation(lookDir / focus, new float3(0, 1, 0));
             _camera = new Camera(vfov, aspect, aperture, focus);
@@ -94,6 +91,8 @@ namespace Tracing {
 
             _tex = new Texture2D((int)_fullQuality.Resolution.x, (int)_fullQuality.Resolution.y, TextureFormat.ARGB32, false, true);
             _tex.filterMode = FilterMode.Point;
+
+            Debug.Log(-2.5f % 1f);
         }
 
         private void OnDestroy() {
@@ -111,12 +110,7 @@ namespace Tracing {
 
             var rng = new Random(1234);
 
-            scene.Spheres = new NativeArray<Sphere>(7, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-            scene.Spheres[0] = new Sphere(new float3(0, -100.5f, 1), 100f, new Material(MaterialType.Lambertian, new float3(0.8f, 0.8f, 0f)));
-            scene.Spheres[1] = new Sphere(new float3(1, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(0.1f, 0.2f, 0.5f)));
-            scene.Spheres[2] = new Sphere(new float3(-1, 0, 1), 0.5f, new Material(MaterialType.Metal, new float3(0.8f, 0.6f, 0.2f)));
-            scene.Spheres[3] = new Sphere(new float3(0, 0, 1), 0.5f, new Material(MaterialType.Lambertian, new float3(1f, 1f, 1f)));
-
+            scene.Spheres = new NativeArray<Sphere>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             scene.Planes = new NativeArray<Plane>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             scene.Disks = new NativeArray<Disk>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
@@ -124,14 +118,16 @@ namespace Tracing {
         }
 
         private void Start() {
-            // // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
+            // Hack: do a cheap render first, editor performs it in managed code for on first run for some reason
             _trace.Quality = _debugQuality;
             StartRender();
             CompleteRender();
 
             // Now do a full-quality render
-            _trace.Quality = _fullQuality;
-            StartRender();
+            if (_renderHighQuality) {
+                _trace.Quality = _fullQuality;
+                StartRender();
+            }
         }
 
         private void Update() {
@@ -163,8 +159,8 @@ namespace Tracing {
             _trace.RayCounter[0] = 0;
 
             _renderHandle = new JobHandle();
-            _renderHandle = _clear.Schedule(_screen.Length, 4, _renderHandle.Value);
-            _renderHandle = _trace.Schedule(_screen.Length, 4, _renderHandle.Value);
+            _renderHandle = _clear.Schedule(_screen.Length, 32, _renderHandle.Value);
+            _renderHandle = _trace.Schedule(_screen.Length, 32, _renderHandle.Value);
         }
 
         private void CompleteRender() {
@@ -223,30 +219,19 @@ namespace Tracing {
         private static float3 TraceRecursive(Ray3f ray, Scene scene, ref Random rng, NativeArray<float3> fibs, int depth, int maxDepth, ref ushort rayCount) {
             HitRecord hit;
 
-            if (depth >= maxDepth) {
-                hit = new HitRecord();
-                return new float3(0);
-            }
-
-            bool hitSomething = IntersectField(ray, scene, 256, 100f, out hit);
+            bool hitSomething = IntersectField(ray, scene, 512, 250f, out hit);
             ++rayCount;
 
-            float3 light = new float3(0);
+            float3 light = new float3(0,0,0);
 
             if (hitSomething) {
-                // We see a thing through another thing, find that other thing, see what it sees, it might be light, but might end void
-                // Filter it through its material model
-
                 Ray3f nextRay;
-                bool scattered = Trace.Scatter(ray, hit, ref rng, fibs, out nextRay);
-                if (scattered) {
-                    nextRay.origin += hit.normal * 0.1f; // Todo: this is a silly way to avoid depth traps, use gradient information
+                bool scattered = Scatter(ray, hit, ref rng, fibs, out nextRay);
+                if (scattered && depth < maxDepth) {
                     light = TraceRecursive(nextRay, scene, ref rng, fibs, depth + 1, maxDepth, ref rayCount);
                 }
                 light = Trace.BRDF(hit) * light;
             } else {
-                // We see sunlight, just send that back through the path traversed
-
                 float t = 0.5f * (ray.direction.y + 1f);
                 light = (1f - t) * new float3(1f) + t * new float3(0.15f, 0.2f, 4f);
             }
@@ -254,52 +239,145 @@ namespace Tracing {
             return light;
         }
 
-        // Todo: wow this is pretty ugly and ineffecient, be smarter :P
+        public static bool Scatter(Ray3f ray, HitRecord hit, ref Random rng, NativeArray<float3> fibs, out Ray3f scattered) {
+            const float epsEscape = 0.002f;
+
+            const float refIdx = 1.5f;
+
+            switch (hit.material.Type) {
+                case MaterialType.Dielectric: {
+                        float3 outwardNormal;
+                        float nint;
+                        float3 reflected = math.reflect(ray.direction, hit.normal);
+                        float cosine;
+
+                        if (math.dot(ray.direction, hit.normal) > 0f) {
+                            outwardNormal = -hit.normal;
+                            nint = refIdx;
+                            cosine = refIdx * math.dot(ray.direction, hit.normal);
+                        } else {
+                            outwardNormal = hit.normal;
+                            nint = 1f / refIdx;
+                            cosine = -math.dot(ray.direction, hit.normal);
+                        }
+
+                        float reflectProb = 1f;
+                        float3 refracted;
+                        if (Trace.Refract(ray.direction, outwardNormal, nint, out refracted)) {
+                            reflectProb = Trace.Schlick(cosine, refIdx);
+                        }
+
+                        bool reflect = rng.NextFloat() < reflectProb;
+
+                        scattered = new Ray3f(
+                            reflect ? hit.point + outwardNormal * epsEscape : hit.point - outwardNormal * epsEscape,
+                            reflect ? reflected : refracted
+                        );
+                        return true;
+                    }
+                case MaterialType.Metal: {
+                        float3 transmitted = math.reflect(ray.direction, hit.normal);
+                        transmitted += fibs[rng.NextInt(0, fibs.Length - 1)] * hit.material.Fuzz;
+                        transmitted = math.normalize(transmitted);
+                        scattered = new Ray3f(hit.point + hit.normal * epsEscape, transmitted);
+                        if (math.dot(scattered.direction, hit.normal) > 0) {
+                            return true;
+                        }
+                        return false;
+                    }
+                case MaterialType.Lambertian:
+                default: {
+                        float3 target = hit.normal + fibs[rng.NextInt(0, fibs.Length - 1)];
+                        float3 transmitted = math.normalize(target - hit.point);
+                        scattered = new Ray3f(hit.point + hit.normal * epsEscape, transmitted);
+                        return true;
+                    }
+            }
+        }
+
+        // Todo: optimize by splitting the below into boolean intersection funct, and then:
+        // dist field
+        // color field
+        // normal field
+        // material field
+        // evaluating those for all the intermediate steps is useless
+        // basically: https://www.shadertoy.com/view/ldl3zN IQ piano
+
         private static bool IntersectField(Ray3f r, Scene scene, short maxStep, float maxDist, out HitRecord hit) {
             hit = new HitRecord();
 
-            const float EPS = 0.001f;
+            const float eps = 0.001f;
 
             float3 p = r.origin;
-
+            
             float totalDist = 0;
             for (int d = 0; d < maxStep; d++) {
-                float closestDist = float.MaxValue;
-                int closestIdx = -1;
-                for (int s = 0; s < scene.Spheres.Length; s++) {
-                    var sph = scene.Spheres[s];
-                    float dist = SDF.Sphere(p - sph.Center, sph.Radius);
-                    if (dist < closestDist) {
-                        closestDist = dist;
-                        closestIdx = s;
-                    }
-                }
+                float dist = 99999f;
 
-                totalDist += closestDist;
+                float3 normal = new float3(0,0,1);
+                Material material = new Material();
+                HitSpheres(p, ref dist, ref normal, ref material);
+                HitFloor(p, ref dist, ref normal, ref material);
 
-                if (closestDist < EPS) {
-                    var sph = scene.Spheres[closestIdx];
-                    hit.t = totalDist;
+                if (dist <= eps) {
                     hit.point = p;
-                    hit.normal = (p-sph.Center) / sph.Radius;
-                    hit.material = sph.Material;
+                    hit.normal = normal;
+                    hit.material = material;
+                    hit.t = totalDist;
                     return true;
                 }
 
-                if (totalDist > maxDist) {
-                    return false;
-                }
-
-                p += r.direction * closestDist;
+                totalDist += dist;
+                p += r.direction * dist;
             }
 
             return false;
         }
 
+        private static void HitSpheres(float3 p, ref float curDist, ref float3 normal, ref Material mat) {
+            float interval = 2f;
+            
+            float3 pos = p + new float3(100f, 0f, 100f);
+
+            // int period = ((int)(pos.x / interval)) % 2;
+
+            pos = SDF.ModXZ(pos, new float2(interval, interval)); // Todo: how to make consistent for negative quadrants?
+
+            /*  Todo:
+             *  doing the following makes the field discontinuous as the modular boundary is crossed
+                float3 spherePos = new float3(0f, period % 2, 0f);
+                need a different way of thinking about instance parameters in repeated space
+             */
+
+            float3 spherePos = new float3(0f, 0f, 0f); // location in worldmodxspace
+            float invSphereRad = 1f / 0.5f;
+            pos = pos - spherePos;
+
+            float dist = SDF.Sphere(pos, 0.75f);
+
+            if (dist < curDist) {
+                curDist = dist;
+                normal = pos * invSphereRad;
+                mat = new Material(MaterialType.Metal, new float3(1f, 1f, 1f));
+                // mat = period == 0 ?
+                //     new Material(MaterialType.Metal, new float3(1f, 1f, 1f)) :
+                //     new Material(MaterialType.Lambertian, new float3(.7f, 0.7f, 0.4f));
+            }
+        }
+
+        private static void HitFloor(float3 p, ref float curDist, ref float3 normal, ref Material mat) {
+            float3 planeNormal = new float3(0,1,0);
+            float3 planePos = new float3(0f, -0.5f, 0f);
+            float dist = math.dot(p - planePos, planeNormal);
+            if (dist < curDist) {
+                curDist = dist;
+                normal = planeNormal;
+                mat = new Material(MaterialType.Lambertian, new float3(0.9f, 0.95f, 0.85f));
+            }
+        }
+
         private struct TraceJobQuality {
             public int2 Resolution;
-            public float tMin;
-            public float tMax;
             public int RaysPerPixel;
             public int MaxDepth;
         }
