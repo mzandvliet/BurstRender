@@ -390,7 +390,8 @@ namespace Tracing {
             if (dist < curDist) {
                 curDist = dist;
                 normal = planeNormal;
-                mat = new Material(MaterialType.Lambertian, new float3(0.9f, 0.95f, 0.85f));
+                mat = new Material(MaterialType.Metal, new float3(0.9f, 0.95f, 0.85f));
+                mat.Fuzz = 0.2f;
             }
         }
 
