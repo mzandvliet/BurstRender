@@ -14,11 +14,18 @@ public class StringSim : MonoBehaviour {
     void Start() {
         _source = GetComponent<AudioSource>();
 
-        int numSamples = AudioSettings.outputSampleRate * 1;
+        int numSeconds = 10;
+        int sr = AudioSettings.outputSampleRate;
+        int numSamples = sr * numSeconds;
         _clipData = new float[numSamples];
 
-        _waveBuffer = new float[512];
+        int freq = 86;
+        int period = sr/freq;
+
+        _waveBuffer = new float[period];
         Random rng = new Random(1234);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
 
         for (int i = 0; i < _waveBuffer.Length; i++) {
             _waveBuffer[i] = -1f + 2f * rng.NextFloat();
@@ -27,11 +34,14 @@ public class StringSim : MonoBehaviour {
         int bufIndex = 0;
         for (int i = 0; i < numSamples; i++) {
             _clipData[i] = _waveBuffer[bufIndex];
-            _waveBuffer[bufIndex] = (_waveBuffer[bufIndex] + _waveBuffer[(bufIndex + 1) % 512]) * 0.5f;
-            bufIndex = (bufIndex+1) % 512; // bitshift dummy
+            _waveBuffer[bufIndex] = (_waveBuffer[bufIndex] + _waveBuffer[(bufIndex + 1) % period]) * 0.5f;
+            bufIndex = (bufIndex+1) % period;
         }
 
-        _clip = AudioClip.Create("MyStringSound", numSamples, 1, AudioSettings.outputSampleRate, false);
+        watch.Stop();
+        Debug.Log(watch.ElapsedMilliseconds);
+
+        _clip = AudioClip.Create("MyStringSound", numSamples, 1, sr, false);
         _clip.SetData(_clipData, 0);
 
         _source.clip = _clip;
