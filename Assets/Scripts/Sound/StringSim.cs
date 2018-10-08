@@ -13,6 +13,11 @@ using Unity.Collections.LowLevel.Unsafe;
 
     Fix build error (burst chokes)
 
+    Visualize wave table behaviour
+
+    Implement some late-80s physical model approximations, control them using
+    Midi and Oculus Touch.
+
     Optimization:
 
     https://gist.github.com/LotteMakesStuff/c2f9b764b15f74d14c00ceb4214356b4
