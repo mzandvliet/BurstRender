@@ -228,10 +228,12 @@ using Unity.Collections.LowLevel.Unsafe;
 // }
 
 public class StringSim : MonoBehaviour {
+    private NativeArray<float> _clipData;
     private NativeArray<float> _waveBuffer;
     private Random _rng;
 
     void Start() {
+        _clipData = new NativeArray<float>(64, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _waveBuffer = new NativeArray<float>(64, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _rng = new Random(1234);
 
@@ -240,16 +242,21 @@ public class StringSim : MonoBehaviour {
 
     private void OnDestroy() {
         _waveBuffer.Dispose();
+        _clipData.Dispose();
     }
 
-    private int i;
+    private int _waveIndex;
+    private int _clipIndex;
     private void Update() {
         if (Input.GetKeyDown(KeyCode.Space)) {
             PluckRandom(_waveBuffer, ref _rng);
         }
 
-        _waveBuffer[i] = (_waveBuffer[i] + _waveBuffer[(i+1)%_waveBuffer.Length]) * 0.5f;
-        i = (i+1)%_waveBuffer.Length;
+        _clipData[_clipIndex] = _waveBuffer[_waveIndex];
+        _clipIndex = (_clipIndex+1)%_clipData.Length;
+
+        _waveBuffer[_waveIndex] = (_waveBuffer[_waveIndex] + _waveBuffer[(_waveIndex+1)%_waveBuffer.Length]) * 0.5f;
+        _waveIndex = (_waveIndex+1)%_waveBuffer.Length;
     }
 
     private static void PluckRandom(NativeArray<float> buffer, ref Random rng) {
@@ -264,7 +271,13 @@ public class StringSim : MonoBehaviour {
         }
 
         for (int i = 0; i < _waveBuffer.Length; i++) {
-            Gizmos.DrawRay(new Vector3(i / 16f, 0f, 0f), new Vector3(0f, _waveBuffer[i], 0f));
+            Gizmos.color = i == _waveIndex ? Color.red : Color.white;
+            Gizmos.DrawRay(new Vector3(i / 16f, 1f, 0f), new Vector3(0f, _waveBuffer[i], 0f));
+        }
+
+        for (int i = _clipData.Length-1; i >= 0; i--) {
+            Gizmos.color = i == _clipData.Length - 1 ? Color.red : Color.white;
+            Gizmos.DrawRay(new Vector3(i / 16f, -1.0f, 0f), new Vector3(0f, _clipData[(_clipIndex + i)%_clipData.Length], 0f));
         }
     }
 }
