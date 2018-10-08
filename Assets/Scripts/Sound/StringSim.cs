@@ -130,114 +130,32 @@ using Unity.Collections.LowLevel.Unsafe;
 //     }
 // }
 
-// public class StringSim : MonoBehaviour {
-//     private NativeArray<float> _waveBuffer;
-
-//     private NativeArray<float> _clipData;
-//     private float[] _clipDataManaged;
-//     private AudioClip _clip;
-//     private AudioSource _source;
-//     private GenerateSoundJob _job;
-
-//     void Start() {
-//         _source = gameObject.AddComponent<AudioSource>();
-
-//         AudioConfiguration config = new AudioConfiguration();
-//         config.dspBufferSize = 128;
-//         config.numRealVoices = 32;
-//         config.numVirtualVoices = 128;
-//         config.sampleRate = 48000;
-//         config.speakerMode = AudioSpeakerMode.Stereo;
-//         AudioSettings.Reset(config);
-
-//         int numSeconds = 30;
-//         int numSamples = config.sampleRate * numSeconds;
-//         _clipData = new NativeArray<float>(numSamples, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-//         _clipDataManaged = new float[numSamples];
-
-//         int freq = 86;
-//         int period = config.sampleRate / freq;
-
-//         _waveBuffer = new NativeArray<float>(period, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-//         _clip = AudioClip.Create("MyStringSound", numSamples, 1, config.sampleRate, false);
-//         _source.clip = _clip;
-
-//         Generate();
-//         _source.Play();
-//     }
-
-//     private void OnDestroy() {
-//         _waveBuffer.Dispose();
-//         _clipData.Dispose();
-//     }
-
-//     private JobHandle _handle;
-
-//     void Generate() {
-//         var watch = System.Diagnostics.Stopwatch.StartNew();
-
-//         Random rng = new Random(1234);
-//         PluckRandom(_waveBuffer, ref rng);
-
-//         var job = new GenerateSoundJob();
-//         job.buffer = _waveBuffer;
-//         job.result = _clipData;
-//         job.period = _waveBuffer.Length;
-//         job.Schedule().Complete();
-
-//         watch.Stop();
-
-//         Copy(_clipData, _clipDataManaged);
-
-//         Debug.Log("Time taken: " + watch.ElapsedMilliseconds + "ms");
-
-//         _clip.SetData(_clipDataManaged, 0);
-//     }
-
-//     private unsafe static void Copy(NativeArray<float> from, float[] to) {
-//         fixed (void* toPointer = to) {
-//             UnsafeUtility.MemCpy(
-//                 toPointer,
-//                 NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(from),
-//                 from.Length * (long)UnsafeUtility.SizeOf<float>());
-//         }
-//     }
-
-//     [BurstCompile]
-//     public struct GenerateSoundJob : IJob {
-//         public NativeArray<float> buffer;
-//         public NativeArray<float> result;
-
-//         public int period;
-
-//         public void Execute() {
-//             int bufIndex = 0;
-//             for (int i = 0; i < result.Length; i++) {
-//                 result[i] = buffer[bufIndex];
-//                 buffer[bufIndex] = (buffer[bufIndex] + buffer[(bufIndex + 2) % period]) * 0.5f;
-//                 bufIndex = (bufIndex + 1) % period;
-//             }
-//         }
-//     }
-
-//     private static void PluckRandom(NativeArray<float> buffer, ref Random rng) {
-//         for (int i = 0; i < buffer.Length; i++) {
-//             buffer[i] = rng.NextFloat(-1f, 1f);
-//         }
-//     }
-// }
-
 public class StringSim : MonoBehaviour {
-    private NativeArray<float> _clipData;
     private NativeArray<float> _waveBuffer;
-    private Random _rng;
+
+    private NativeArray<float> _clipData;
+    private float[] _clipDataManaged;
+    private AudioClip _clip;
+    private AudioSource _source;
+    private GenerateSoundJob _job;
 
     void Start() {
-        _clipData = new NativeArray<float>(64, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        _waveBuffer = new NativeArray<float>(64, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        _rng = new Random(1234);
+        _source = gameObject.AddComponent<AudioSource>();
 
-        PluckRandom(_waveBuffer, ref _rng);
+        int numSeconds = 30;
+        int numSamples = AudioSettings.outputSampleRate * numSeconds;
+        _clipData = new NativeArray<float>(numSamples, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        _clipDataManaged = new float[numSamples];
+
+        int freq = 110;
+        int period = AudioSettings.outputSampleRate / freq;
+
+        _waveBuffer = new NativeArray<float>(period, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        _clip = AudioClip.Create("MyStringSound", numSamples, 1, AudioSettings.outputSampleRate, false);
+        _source.clip = _clip;
+
+        Generate();
+        _source.Play();
     }
 
     private void OnDestroy() {
@@ -245,18 +163,53 @@ public class StringSim : MonoBehaviour {
         _clipData.Dispose();
     }
 
-    private int _waveIndex;
-    private int _clipIndex;
-    private void Update() {
-        if (Input.GetKeyDown(KeyCode.Space)) {
-            PluckRandom(_waveBuffer, ref _rng);
+    private JobHandle _handle;
+
+    void Generate() {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        Random rng = new Random(1234);
+        PluckRandom(_waveBuffer, ref rng);
+
+        var job = new GenerateSoundJob();
+        job.buffer = _waveBuffer;
+        job.result = _clipData;
+        job.period = _waveBuffer.Length;
+        job.Schedule().Complete();
+
+        watch.Stop();
+
+        Copy(_clipData, _clipDataManaged);
+
+        Debug.Log("Time taken: " + watch.ElapsedMilliseconds + "ms");
+
+        _clip.SetData(_clipDataManaged, 0);
+    }
+
+    private unsafe static void Copy(NativeArray<float> from, float[] to) {
+        fixed (void* toPointer = to) {
+            UnsafeUtility.MemCpy(
+                toPointer,
+                NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(from),
+                from.Length * (long)UnsafeUtility.SizeOf<float>());
         }
+    }
 
-        _clipData[_clipIndex] = _waveBuffer[_waveIndex];
-        _clipIndex = (_clipIndex+1)%_clipData.Length;
+    [BurstCompile]
+    public struct GenerateSoundJob : IJob {
+        public NativeArray<float> buffer;
+        public NativeArray<float> result;
 
-        _waveBuffer[_waveIndex] = (_waveBuffer[_waveIndex] + _waveBuffer[(_waveIndex+1)%_waveBuffer.Length]) * 0.5f;
-        _waveIndex = (_waveIndex+1)%_waveBuffer.Length;
+        public int period;
+
+        public void Execute() {
+            int bufIndex = 0;
+            for (int i = 0; i < result.Length; i++) {
+                result[i] = buffer[bufIndex];
+                buffer[bufIndex] = (buffer[bufIndex] + buffer[(bufIndex + 1) % period]) * 0.5f;
+                bufIndex = (bufIndex + 1) % period;
+            }
+        }
     }
 
     private static void PluckRandom(NativeArray<float> buffer, ref Random rng) {
@@ -264,20 +217,59 @@ public class StringSim : MonoBehaviour {
             buffer[i] = rng.NextFloat(-1f, 1f);
         }
     }
-
-    private void OnDrawGizmos() {
-        if (!Application.isPlaying) {
-            return;
-        }
-
-        for (int i = 0; i < _waveBuffer.Length; i++) {
-            Gizmos.color = i == _waveIndex ? Color.red : Color.white;
-            Gizmos.DrawRay(new Vector3(i / 16f, 1f, 0f), new Vector3(0f, _waveBuffer[i], 0f));
-        }
-
-        for (int i = _clipData.Length-1; i >= 0; i--) {
-            Gizmos.color = i == _clipData.Length - 1 ? Color.red : Color.white;
-            Gizmos.DrawRay(new Vector3(i / 16f, -1.0f, 0f), new Vector3(0f, _clipData[(_clipIndex + i)%_clipData.Length], 0f));
-        }
-    }
 }
+
+// public class StringSim : MonoBehaviour {
+//     private NativeArray<float> _clipData;
+//     private NativeArray<float> _waveBuffer;
+//     private Random _rng;
+
+//     void Start() {
+//         _clipData = new NativeArray<float>(64, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+//         _waveBuffer = new NativeArray<float>(64, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+//         _rng = new Random(1234);
+
+//         PluckRandom(_waveBuffer, ref _rng);
+//     }
+
+//     private void OnDestroy() {
+//         _waveBuffer.Dispose();
+//         _clipData.Dispose();
+//     }
+
+//     private int _waveIndex;
+//     private int _clipIndex;
+//     private void Update() {
+//         if (Input.GetKeyDown(KeyCode.Space)) {
+//             PluckRandom(_waveBuffer, ref _rng);
+//         }
+
+//         _clipData[_clipIndex] = _waveBuffer[_waveIndex];
+//         _clipIndex = (_clipIndex+1)%_clipData.Length;
+
+//         _waveBuffer[_waveIndex] = (_waveBuffer[_waveIndex] + _waveBuffer[(_waveIndex+1)%_waveBuffer.Length]) * 0.5f;
+//         _waveIndex = (_waveIndex+1)%_waveBuffer.Length;
+//     }
+
+//     private static void PluckRandom(NativeArray<float> buffer, ref Random rng) {
+//         for (int i = 0; i < buffer.Length; i++) {
+//             buffer[i] = rng.NextFloat(-1f, 1f);
+//         }
+//     }
+
+//     private void OnDrawGizmos() {
+//         if (!Application.isPlaying) {
+//             return;
+//         }
+
+//         for (int i = 0; i < _waveBuffer.Length; i++) {
+//             Gizmos.color = i == _waveIndex ? Color.red : Color.white;
+//             Gizmos.DrawRay(new Vector3(i / 16f, 1f, 0f), new Vector3(0f, _waveBuffer[i], 0f));
+//         }
+
+//         for (int i = _clipData.Length-1; i >= 0; i--) {
+//             Gizmos.color = i == _clipData.Length - 1 ? Color.red : Color.white;
+//             Gizmos.DrawRay(new Vector3(i / 16f, -1.0f, 0f), new Vector3(0f, _clipData[(_clipIndex + i)%_clipData.Length], 0f));
+//         }
+//     }
+// }
