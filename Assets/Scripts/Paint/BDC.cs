@@ -150,12 +150,12 @@ public static class BDCCubic2d {
 
     public static float2 GetNormal(NativeArray<float2> c, float t) {
         float2 tangent = math.normalize(GetTangent(c, t));
-        return new float2(-tangent.y, tangent.x);
+        return new float2(tangent.y, tangent.x);
     }
 
     public static float2 GetNormalAt(NativeArray<float2> c, float t, int idx) {
         float2 tangent = math.normalize(GetTangentAt(c, t, idx));
-        return new float2(-tangent.y, tangent.x);
+        return new float2(tangent.y, tangent.x);
     }
 
     public static float GetLength(NativeArray<float2> c, int steps) {

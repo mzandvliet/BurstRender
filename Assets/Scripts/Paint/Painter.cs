@@ -56,7 +56,7 @@ public class Painter : MonoBehaviour {
         _canvasTex.Create();
 
         _cameraObject = new GameObject("BrushCamera").transform;
-        _cameraObject.transform.position = new Vector3(0f, 0f, -10f);
+        _cameraObject.transform.position = new Vector3(5f, 5f, -10f);
         _camera = _cameraObject.gameObject.AddComponent<Camera>();
         _camera.clearFlags = CameraClearFlags.SolidColor;
         _camera.backgroundColor = Color.white;
@@ -64,7 +64,7 @@ public class Painter : MonoBehaviour {
         _camera.targetTexture = _canvasTex;
         _camera.enabled = false;
 
-        _brushVerts = new NativeArray<Vertex>(6, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        _brushVerts = new NativeArray<Vertex>(16 * 6, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
 
         _brushMaterial.SetBuffer("verts", _brushBuffer);
@@ -86,7 +86,7 @@ public class Painter : MonoBehaviour {
             float2 p = new float2(_rng.NextFloat(1f, 9f), _rng.NextFloat(0.5f, 1f));
             for (int j = 0; j < 4; j++) {
                 _curves[i * 4 + j] = p;
-                p += new float2(_rng.NextFloat(-0.3f, 0.3f), _rng.NextFloat(0.8f, 1.6f)) * j;
+                p += new float2(_rng.NextFloat(-0.3f, 0.3f), _rng.NextFloat(1.5f, 3f));
             }
 
             _colors[i] = new float3(_rng.NextFloat(0.3f, 0.5f),_rng.NextFloat(0.6f, 0.8f),_rng.NextFloat(0.3f, 0.6f));
@@ -100,49 +100,73 @@ public class Painter : MonoBehaviour {
     }
 
     private void CreateSplineGeometry() {
-        // for (int i = 0; i < 16; i++) {
-        //     var v = new Vertex();
+        for (int i = 0; i < 16; i++) {
+            float tA = i / 15f;
+            float3 posA = ToFloat3(BDCCubic2d.Get(_curves, tA));
+            float3 norA = ToFloat3(BDCCubic2d.GetNormal(_curves, tA));
+            float3 tngA = ToFloat3(BDCCubic2d.GetTangent(_curves, tA));
 
-        //     float3 p = ToFloat3(BDCCubic2d.Get(_curves, i / 15f));
-        //     float3 n = ToFloat3(BDCCubic2d.GetNormal(_curves, i / 15f));
-        //     float3 t = ToFloat3(BDCCubic2d.GetTangent(_curves, i / 15f));
+            float tB = (i+1) / 15f;
+            float3 posB = ToFloat3(BDCCubic2d.Get(_curves, tB));
+            float3 norB = ToFloat3(BDCCubic2d.GetNormal(_curves, tB));
+            float3 tngB = ToFloat3(BDCCubic2d.GetTangent(_curves, tB));
 
-        //     v.vertex = p - n * 0.2f;
-        //     v.normal = new float3(0,0,-1);
-        //     v.uv = new float2(0f, i / 15f); // Todo: stretch-corrected uvs
+            // todo: fix uvs
+            float uvYA = 0;
+            float uvYB = 1;
 
-        //     _brushVerts[i * 2 + 0] = v;
+            const float width = 0.25f;
 
-        //     v.vertex = p + n * 0.2f;
-        //     v.normal = new float3(0, 0, -1);
-        //     v.uv = new float2(1f, i / 15f); // Todo: stretch-corrected uvs
+            var v = new Vertex();
+            v.normal = new float3(0, 0, -1);
 
-        //     _brushVerts[i * 2 + 1] = v;
-        // }
+            v.vertex = posA - norA * width;
+            v.uv = new float2(0,uvYA);
+            _brushVerts[i * 6 + 0] = v;
 
-        var v = new Vertex();
-        v.normal = new float3(0, 0, -1);
+            v.vertex = posB - norB * width;
+            v.uv = new float2(0, uvYB);
+            _brushVerts[i * 6 + 1] = v;
+
+            v.vertex = posB + norB * width;
+            v.uv = new float2(1, uvYB);
+            _brushVerts[i * 6 + 2] = v;
+
+            v.vertex = posA - norA * width;
+            v.uv = new float2(0, 0);
+            _brushVerts[i * 6 + 3] = v;
+
+            v.vertex = posB + norB * width;
+            v.uv = new float2(1, uvYB);
+            _brushVerts[i * 6 + 4] = v;
+
+            v.vertex = posA + norA * width;
+            v.uv = new float2(1, uvYA);
+            _brushVerts[i * 6 + 5] = v;
+        }
+
+        // var v = new Vertex();
+        // v.normal = new float3(0, 0, -1);
         
-        v.vertex = new float3(0,0,0);
-        v.uv = new float2(0,0);
-        _brushVerts[0] = v;
-        v.vertex = new float3(0, 1, 0);
-        v.uv = new float2(0, 1);
-        _brushVerts[1] = v;
-        v.vertex = new float3(1, 1, 0);
-        v.uv = new float2(1, 1);
-        _brushVerts[2] = v;
+        // v.vertex = new float3(0,0,0);
+        // v.uv = new float2(0,0);
+        // _brushVerts[0] = v;
+        // v.vertex = new float3(0, 1, 0);
+        // v.uv = new float2(0, 1);
+        // _brushVerts[1] = v;
+        // v.vertex = new float3(1, 1, 0);
+        // v.uv = new float2(1, 1);
+        // _brushVerts[2] = v;
 
-        v.vertex = new float3(0, 0, 0);
-        v.uv = new float2(0, 0);
-        _brushVerts[3] = v;
-        v.vertex = new float3(1, 1, 0);
-        v.uv = new float2(1, 1);
-        _brushVerts[4] = v;
-        v.vertex = new float3(1, 0, 0);
-        v.uv = new float2(1, 0);
-        _brushVerts[5] = v;
-        
+        // v.vertex = new float3(0, 0, 0);
+        // v.uv = new float2(0, 0);
+        // _brushVerts[3] = v;
+        // v.vertex = new float3(1, 1, 0);
+        // v.uv = new float2(1, 1);
+        // _brushVerts[4] = v;
+        // v.vertex = new float3(1, 0, 0);
+        // v.uv = new float2(1, 0);
+        // _brushVerts[5] = v;
 
         _brushBuffer.SetData(_brushVerts);
     }
