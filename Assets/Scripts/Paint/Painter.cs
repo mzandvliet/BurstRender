@@ -49,7 +49,11 @@ public class Painter : MonoBehaviour {
 
     private const float CANVAS_SCALE = 10f;
     private const int CANVAS_RES = 1024;
-    private const int NUM_CURVES = 1;
+
+    private const int NUM_CURVES = 8;
+    private const int CONTROLS_PER_CURVE = 4;
+    private const int CURVE_TESSELATION = 16;
+    private const int VERTS_PER_TESSEL = 6;
 
     private void Awake() {
         _canvasTex = new RenderTexture(CANVAS_RES, CANVAS_RES, 24);
@@ -64,19 +68,17 @@ public class Painter : MonoBehaviour {
         _camera.targetTexture = _canvasTex;
         _camera.enabled = false;
 
-        _brushVerts = new NativeArray<Vertex>(16 * 6, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
 
         _brushMaterial.SetBuffer("verts", _brushBuffer);
 
         _commandBuffer = new CommandBuffer();
+        // Todo: what does the instanceCount parameter do here?
         _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, 0, MeshTopology.Triangles, _brushVerts.Length, 1);
         _camera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, _commandBuffer);
 
-
-
-
-        _curves = new NativeArray<float2>(NUM_CURVES * 4, Allocator.Persistent);
+        _curves = new NativeArray<float2>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
         _distanceCache = new NativeArray<float>(32, Allocator.Persistent);
 
@@ -84,8 +86,8 @@ public class Painter : MonoBehaviour {
 
         for (int i = 0; i < NUM_CURVES; i++) {
             float2 p = new float2(_rng.NextFloat(1f, 9f), _rng.NextFloat(0.5f, 1f));
-            for (int j = 0; j < 4; j++) {
-                _curves[i * 4 + j] = p;
+            for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
+                _curves[i * CONTROLS_PER_CURVE + j] = p;
                 p += new float2(_rng.NextFloat(-0.3f, 0.3f), _rng.NextFloat(1.5f, 3f));
             }
 
@@ -94,22 +96,28 @@ public class Painter : MonoBehaviour {
     }
 
     private void Start() {
-        CreateSplineGeometry();
+        for (int i = 0; i < NUM_CURVES; i++) {
+            TesselateCurve(i);
+        }
 
         _camera.Render();
     }
 
-    private void CreateSplineGeometry() {
-        for (int i = 0; i < 16; i++) {
-            float tA = i / 15f;
-            float3 posA = ToFloat3(BDCCubic2d.Get(_curves, tA));
-            float3 norA = ToFloat3(BDCCubic2d.GetNormal(_curves, tA));
-            float3 tngA = ToFloat3(BDCCubic2d.GetTangent(_curves, tA));
+    private void TesselateCurve(int curveId) {
+        int vertOffset = curveId * CURVE_TESSELATION * VERTS_PER_TESSEL;
+        int firstControl = curveId * CONTROLS_PER_CURVE;
 
-            float tB = (i+1) / 15f;
-            float3 posB = ToFloat3(BDCCubic2d.Get(_curves, tB));
-            float3 norB = ToFloat3(BDCCubic2d.GetNormal(_curves, tB));
-            float3 tngB = ToFloat3(BDCCubic2d.GetTangent(_curves, tB));
+        for (int i = 0; i < CURVE_TESSELATION; i++) {
+            float tA = i / (float)(CURVE_TESSELATION-1);
+            
+            float3 posA = ToFloat3(BDCCubic2d.GetAt(_curves, tA, firstControl));
+            float3 norA = ToFloat3(BDCCubic2d.GetNormalAt(_curves, tA, firstControl));
+            float3 tngA = ToFloat3(BDCCubic2d.GetTangentAt(_curves, tA, firstControl));
+
+            float tB = (i+1) / (float)(CURVE_TESSELATION - 1);
+            float3 posB = ToFloat3(BDCCubic2d.GetAt(_curves, tB, firstControl));
+            float3 norB = ToFloat3(BDCCubic2d.GetNormalAt(_curves, tB, firstControl));
+            float3 tngB = ToFloat3(BDCCubic2d.GetTangentAt(_curves, tB, firstControl));
 
             // todo: fix uvs
             float uvYA = 0;
@@ -122,51 +130,28 @@ public class Painter : MonoBehaviour {
 
             v.vertex = posA - norA * width;
             v.uv = new float2(0,uvYA);
-            _brushVerts[i * 6 + 0] = v;
+            _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 0] = v;
 
             v.vertex = posB - norB * width;
             v.uv = new float2(0, uvYB);
-            _brushVerts[i * 6 + 1] = v;
+            _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 1] = v;
 
             v.vertex = posB + norB * width;
             v.uv = new float2(1, uvYB);
-            _brushVerts[i * 6 + 2] = v;
+            _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 2] = v;
 
             v.vertex = posA - norA * width;
             v.uv = new float2(0, 0);
-            _brushVerts[i * 6 + 3] = v;
+            _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 3] = v;
 
             v.vertex = posB + norB * width;
             v.uv = new float2(1, uvYB);
-            _brushVerts[i * 6 + 4] = v;
+            _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 4] = v;
 
             v.vertex = posA + norA * width;
             v.uv = new float2(1, uvYA);
-            _brushVerts[i * 6 + 5] = v;
+            _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 5] = v;
         }
-
-        // var v = new Vertex();
-        // v.normal = new float3(0, 0, -1);
-        
-        // v.vertex = new float3(0,0,0);
-        // v.uv = new float2(0,0);
-        // _brushVerts[0] = v;
-        // v.vertex = new float3(0, 1, 0);
-        // v.uv = new float2(0, 1);
-        // _brushVerts[1] = v;
-        // v.vertex = new float3(1, 1, 0);
-        // v.uv = new float2(1, 1);
-        // _brushVerts[2] = v;
-
-        // v.vertex = new float3(0, 0, 0);
-        // v.uv = new float2(0, 0);
-        // _brushVerts[3] = v;
-        // v.vertex = new float3(1, 1, 0);
-        // v.uv = new float2(1, 1);
-        // _brushVerts[4] = v;
-        // v.vertex = new float3(1, 0, 0);
-        // v.uv = new float2(1, 0);
-        // _brushVerts[5] = v;
 
         _brushBuffer.SetData(_brushVerts);
     }
