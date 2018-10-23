@@ -4,7 +4,10 @@
 	}
 
 	SubShader{
-	Tags{ "LightMode" = "ForwardBase" }
+	Tags{ "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
+
+	ZWrite Off
+	Blend SrcAlpha OneMinusSrcAlpha
 
 	Pass{
 		CGPROGRAM
@@ -17,10 +20,12 @@
 		float4 _MainTex_ST;
 		uniform fixed4 _LightColor0;
 
+
 		struct Vertex {
 			float3 vertex;
 			float3 normal;
 			float2 uv;
+			float3 color;
 		};
 
 		StructuredBuffer<Vertex> verts;
@@ -38,11 +43,14 @@
 			float4 vertex_normal = float4(verts[id].normal, 1.0f);
 			o.pos = mul(UNITY_MATRIX_VP, vertex_position);
 			o.uv = TRANSFORM_TEX(verts[id].uv, _MainTex);
-			float3 normalDirection = normalize(vertex_normal.xyz);
-			float4 AmbientLight = UNITY_LIGHTMODEL_AMBIENT;
-			float4 LightDirection = normalize(_WorldSpaceLightPos0);
-			float4 DiffuseLight = saturate(dot(LightDirection, normalDirection))*_LightColor0;
-			o.col = float4(AmbientLight + DiffuseLight);
+
+			// float3 normalDirection = normalize(vertex_normal.xyz);
+			// float4 AmbientLight = UNITY_LIGHTMODEL_AMBIENT;
+			// float4 LightDirection = normalize(_WorldSpaceLightPos0);
+			// float4 DiffuseLight = saturate(dot(LightDirection, normalDirection))*_LightColor0;
+			// o.col = float4(AmbientLight + DiffuseLight);
+
+			o.col = float4(verts[id].color, 1);
 			return o;
 		}
 

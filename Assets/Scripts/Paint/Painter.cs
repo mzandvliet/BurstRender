@@ -27,6 +27,7 @@ public struct Vertex {
     public float3 vertex;
     public float3 normal;
     public float2 uv;
+    public float3 color;
 };
 
 public class Painter : MonoBehaviour {
@@ -50,7 +51,7 @@ public class Painter : MonoBehaviour {
     private const float CANVAS_SCALE = 10f;
     private const int CANVAS_RES = 1024;
 
-    private const int NUM_CURVES = 8;
+    private const int NUM_CURVES = 32;
     private const int CONTROLS_PER_CURVE = 4;
     private const int CURVE_TESSELATION = 16;
     private const int VERTS_PER_TESSEL = 6;
@@ -103,30 +104,38 @@ public class Painter : MonoBehaviour {
         _camera.Render();
     }
 
+    /*
+        Todo: 
+        
+        Strong enough curvature will make the outer edges overlap and flip triangles
+        
+        maaaay want to do this in a ComputeShader instead, we'll see
+     */
     private void TesselateCurve(int curveId) {
         int vertOffset = curveId * CURVE_TESSELATION * VERTS_PER_TESSEL;
         int firstControl = curveId * CONTROLS_PER_CURVE;
 
         for (int i = 0; i < CURVE_TESSELATION; i++) {
-            float tA = i / (float)(CURVE_TESSELATION-1);
+            float tA = i / (float)(CURVE_TESSELATION);
             
             float3 posA = ToFloat3(BDCCubic2d.GetAt(_curves, tA, firstControl));
             float3 norA = ToFloat3(BDCCubic2d.GetNormalAt(_curves, tA, firstControl));
             float3 tngA = ToFloat3(BDCCubic2d.GetTangentAt(_curves, tA, firstControl));
 
-            float tB = (i+1) / (float)(CURVE_TESSELATION - 1);
+            float tB = (i+1) / (float)(CURVE_TESSELATION);
             float3 posB = ToFloat3(BDCCubic2d.GetAt(_curves, tB, firstControl));
             float3 norB = ToFloat3(BDCCubic2d.GetNormalAt(_curves, tB, firstControl));
             float3 tngB = ToFloat3(BDCCubic2d.GetTangentAt(_curves, tB, firstControl));
 
             // todo: fix uvs
-            float uvYA = 0;
-            float uvYB = 1;
+            float uvYA = tA;
+            float uvYB = tB;
 
             const float width = 0.25f;
 
             var v = new Vertex();
             v.normal = new float3(0, 0, -1);
+            v.color = _colors[curveId];
 
             v.vertex = posA - norA * width;
             v.uv = new float2(0,uvYA);
@@ -141,7 +150,7 @@ public class Painter : MonoBehaviour {
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 2] = v;
 
             v.vertex = posA - norA * width;
-            v.uv = new float2(0, 0);
+            v.uv = new float2(0, uvYA);
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 3] = v;
 
             v.vertex = posB + norB * width;
@@ -202,60 +211,3 @@ public class Painter : MonoBehaviour {
         }
     }
 }
-
-// [BurstCompile]
-// public struct ClearCanvasJob : IJobParallelFor {
-//     public NativeArray<float3> canvas;
-
-//     public void Execute(int i) {
-//         canvas[i] = new float3(1, 1, 1);
-//     }
-// }
-
-// [BurstCompile]
-// public struct StrokeJob : IJob {
-//     [ReadOnly] public NativeArray<float2> curve;
-//     [ReadOnly] public NativeArray<float> distCache;
-//     public NativeArray<float3> canvas;
-//     public float3 color;
-//     public int curveIndex;
-//     public int steps;
-//     public int time;
-//     public int canvasResolution;
-//     public float canvasScale;
-
-//     public void Execute() {
-//         int i = time;
-//         float tScale = 1f / (float)(steps - 1);
-//         float t = i * tScale;
-//         float res = (float)canvasResolution;
-
-//         float2 p = BDC2Cube.GetAt(curve, t, curveIndex * 4);
-//         float2 n = BDC2Cube.GetNormalAt(curve, t, curveIndex * 4);
-
-//         int widthSteps = 4 + (int)math.round((1f - t) * 32f);
-//         float width = 0.33f;
-//         float widthStep = width / (float)(widthSteps - 1);
-//         float2 start = p - n * (width * 0.5f);
-
-//         for (int j = 0; j < widthSteps; j++) {
-//             float alpha = RampUpDown(j, widthSteps);
-//             int2 pi = ToGrid(start + n * (widthStep * j), canvasScale, canvasResolution);
-//             Draw(pi, canvas, color, alpha, canvasResolution);
-//         }
-//     }
-
-//     private static float RampUpDown(int i, int max) {
-//         float halfMax = (max - 1) * 0.5f;
-//         return i <= halfMax ? i / halfMax : 2f - (i / halfMax);
-//     }
-
-//     private static int2 ToGrid(float2 p, float canvasScale, int canvasRes) {
-//         return (int2)math.round(p / canvasScale * canvasRes);
-//     }
-
-//     private static void Draw(int2 p, NativeArray<float3> canvas, float3 col, float alpha, int res) {
-//         var current = canvas[p.y * res + p.x];
-//         canvas[p.y * res + p.x] = math.lerp(current, col, alpha);
-//     }
-// }
