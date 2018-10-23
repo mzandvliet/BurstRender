@@ -7,6 +7,7 @@
 	Tags{ "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
 
 	ZWrite Off
+	BlendOp Add // Max, LogicalSet is funky
 	Blend SrcAlpha OneMinusSrcAlpha
 
 	Pass{

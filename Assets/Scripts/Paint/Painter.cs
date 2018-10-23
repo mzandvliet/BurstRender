@@ -10,13 +10,11 @@ using System.Runtime.InteropServices;
 
 /* 
     Todo: 
-    
-    Draw along a spline on a canvas of.. pixels for now.
+
+    Sort out blending
     
     Ideas:
 
-    - Need to draw actual ink/paint. Needs to be smooth, anti-aliased.
-        - GPU based 2d mesh along the splines I guess? And then rasterize that.
     - Having analytic projection from 3d cubic curve to 2d screenspace cubic curve will be useful
     - Can use distance fields to model scenes including curvature/normal information
     - Scene geometry should express how it wants to be drawn. Saves analysis.
@@ -49,25 +47,27 @@ public class Painter : MonoBehaviour {
     private RenderTexture _canvasTex;
 
     private const float CANVAS_SCALE = 10f;
-    private const int CANVAS_RES = 1024;
+    private static readonly int2 CANVAS_RES = new int2(1920, 1080);
 
-    private const int NUM_CURVES = 32;
+    private const int NUM_CURVES = 128;
     private const int CONTROLS_PER_CURVE = 4;
     private const int CURVE_TESSELATION = 16;
     private const int VERTS_PER_TESSEL = 6;
 
     private void Awake() {
-        _canvasTex = new RenderTexture(CANVAS_RES, CANVAS_RES, 24);
+        _canvasTex = new RenderTexture(CANVAS_RES.x, CANVAS_RES.y, 24);
         _canvasTex.Create();
 
         _cameraObject = new GameObject("BrushCamera").transform;
         _cameraObject.transform.position = new Vector3(5f, 5f, -10f);
         _camera = _cameraObject.gameObject.AddComponent<Camera>();
+        _camera.orthographicSize = 3.5f;
         _camera.clearFlags = CameraClearFlags.SolidColor;
         _camera.backgroundColor = Color.white;
         _camera.orthographic = true;
         _camera.targetTexture = _canvasTex;
         _camera.enabled = false;
+        _camera.clearFlags = CameraClearFlags.Nothing;
 
         _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
@@ -84,24 +84,24 @@ public class Painter : MonoBehaviour {
         _distanceCache = new NativeArray<float>(32, Allocator.Persistent);
 
         _rng = new Rng(1234);
+    }
 
+    private void GenerateRandomCurves() {
         for (int i = 0; i < NUM_CURVES; i++) {
-            float2 p = new float2(_rng.NextFloat(1f, 9f), _rng.NextFloat(0.5f, 1f));
+            float2 p = new float2(_rng.NextFloat(0f, 10f), _rng.NextFloat(0.5f, 1f));
             for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                 _curves[i * CONTROLS_PER_CURVE + j] = p;
-                p += new float2(_rng.NextFloat(-0.3f, 0.3f), _rng.NextFloat(1.5f, 3f));
+                p += new float2(_rng.NextFloat(-0.33f, 0.33f), _rng.NextFloat(0.5f, 1f));
             }
 
-            _colors[i] = new float3(_rng.NextFloat(0.3f, 0.5f),_rng.NextFloat(0.6f, 0.8f),_rng.NextFloat(0.3f, 0.6f));
+            _colors[i] = new float3(_rng.NextFloat(0.3f, 0.5f), _rng.NextFloat(0.6f, 0.8f), _rng.NextFloat(0.3f, 0.6f));
         }
     }
 
-    private void Start() {
+    private void TesselateCurves() {
         for (int i = 0; i < NUM_CURVES; i++) {
             TesselateCurve(i);
         }
-
-        _camera.Render();
     }
 
     /*
@@ -127,43 +127,57 @@ public class Painter : MonoBehaviour {
             float3 norB = ToFloat3(BDCCubic2d.GetNormalAt(_curves, tB, firstControl));
             float3 tngB = ToFloat3(BDCCubic2d.GetTangentAt(_curves, tB, firstControl));
 
-            // todo: fix uvs
+            // todo: linearize the uvs using cached distances or lower degree Berstein Polys
             float uvYA = tA;
             float uvYB = tB;
 
-            const float width = 0.25f;
+            const float maxWidth = 0.1f;
+            float widthA = math.pow(RampUpDown(tA), 0.5f) * maxWidth;
+            float widthB = math.pow(RampUpDown(tB), 0.5f) * maxWidth;
 
             var v = new Vertex();
             v.normal = new float3(0, 0, -1);
-            v.color = _colors[curveId];
+            float lightA = (0.3f + 0.7f * tA);
+            float lightB = (0.3f + 0.7f * tB);
 
-            v.vertex = posA - norA * width;
+            v.vertex = posA - norA * widthA;
             v.uv = new float2(0,uvYA);
+            v.color = _colors[curveId] * lightA;
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 0] = v;
 
-            v.vertex = posB - norB * width;
+            v.vertex = posB - norB * widthB;
             v.uv = new float2(0, uvYB);
+            v.color = _colors[curveId] * lightB;
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 1] = v;
 
-            v.vertex = posB + norB * width;
+            v.vertex = posB + norB * widthB;
             v.uv = new float2(1, uvYB);
+            v.color = _colors[curveId] * lightB;
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 2] = v;
 
-            v.vertex = posA - norA * width;
+            v.vertex = posA - norA * widthA;
             v.uv = new float2(0, uvYA);
+            v.color = _colors[curveId] * lightA;
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 3] = v;
 
-            v.vertex = posB + norB * width;
+            v.vertex = posB + norB * widthB;
             v.uv = new float2(1, uvYB);
+            v.color = _colors[curveId] * lightB;
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 4] = v;
 
-            v.vertex = posA + norA * width;
+            v.vertex = posA + norA * widthA;
             v.uv = new float2(1, uvYA);
+            v.color = _colors[curveId] * lightA;
             _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 5] = v;
         }
 
         _brushBuffer.SetData(_brushVerts);
     }
+
+    private static float RampUpDown(float i) {
+        return i <= 0.5f ? i * 2f : 2f - (i * 2f);
+    }
+
 
     private static float3 ToFloat3(float2 v) {
         return new float3(v.x, v.y, 0f);
@@ -180,12 +194,15 @@ public class Painter : MonoBehaviour {
     }
 
     private void Update() {
-        
+        if (Time.frameCount % 30 == 0) {
+            GenerateRandomCurves();
+            TesselateCurves();
+            _camera.Render();
+        }
     }
 
     private void OnGUI() {
-        float dims = math.min(Screen.width, Screen.height);
-        GUI.DrawTexture(new Rect(0,0, dims, dims), _canvasTex, ScaleMode.ScaleToFit);
+        GUI.DrawTexture(new Rect(0,0, Screen.width, Screen.height), _canvasTex, ScaleMode.ScaleToFit);
     }
 
     private void OnDrawGizmos() {
