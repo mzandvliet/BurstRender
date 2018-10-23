@@ -12,18 +12,23 @@ using System.Runtime.InteropServices;
     Todo: 
 
     Sort out blending
+    Start defining some geometries you want to draw, like:
+    - a field of grass growing on smooth hills
+    - a sphere, with lighting
+    - ink outlines, with colored in gradients, respecting lighting.
     
     Ideas:
 
     - Having analytic projection from 3d cubic curve to 2d screenspace cubic curve will be useful
     - Can use distance fields to model scenes including curvature/normal information
     - Scene geometry should express how it wants to be drawn. Saves analysis.
+    - Could draw into multiple intermediate canvasses that could parallax without needing redraw
 
  */
 
 public struct Vertex {
     public float3 vertex;
-    public float3 normal;
+    public float3 normal; // Note: unused right now
     public float2 uv;
     public float3 color;
 };
@@ -46,7 +51,6 @@ public class Painter : MonoBehaviour {
 
     private RenderTexture _canvasTex;
 
-    private const float CANVAS_SCALE = 10f;
     private static readonly int2 CANVAS_RES = new int2(1920, 1080);
 
     private const int NUM_CURVES = 128;
@@ -99,7 +103,7 @@ public class Painter : MonoBehaviour {
     private JobHandle _handle;
 
     private void Update() {
-        if (Time.frameCount % 30 == 0) {
+        if (Time.frameCount % 15 == 0) {
             var genJob = new GenerateRandomCurvesJob();
             genJob._rng = new Rng((uint)_rng.NextInt());
             genJob._curves = _curves;
