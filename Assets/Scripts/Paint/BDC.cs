@@ -96,7 +96,7 @@ public static class BDC3Cube {
     }
 }
 
-public static class BDC2Cube {
+public static class BDCCubic2d {
     public static float2 GetCasteljau(NativeArray<float2> c, float t) {
         float2 bc = math.lerp(c[1], c[2], t);
         return math.lerp(math.lerp(math.lerp(c[0], c[1], t), bc, t), math.lerp(bc, math.lerp(c[2], c[3], t), t), t);
