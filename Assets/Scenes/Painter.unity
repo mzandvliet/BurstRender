@@ -216,13 +216,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a66fbd5ffe9b9d64da304996f1919f40, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _setResolution: 1
+  _setResolution: 0
   _width: 1920
   _height: 1080
   _frameRate: 30
   _allowSlowDown: 1
   _preset: 1
-  _startTime: 1
+  _startTime: 5
   _recordLength: 10
   _shader: {fileID: 4800000, guid: a4bd3b00ad1ed53458ec6ff07694985e, type: 3}
 --- !u!1 &1509488727
