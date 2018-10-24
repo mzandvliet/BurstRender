@@ -46,23 +46,22 @@ public class Painter : MonoBehaviour {
 
     private RenderTexture _canvasTex;
 
-    private static readonly int2 CANVAS_RES = new int2(1920, 1080);
-
-    private const int NUM_CURVES = 64;
+    private const int NUM_CURVES = 128;
     private const int CONTROLS_PER_CURVE = 4;
-    private const int CURVE_TESSELATION = 16;
+    private const int CURVE_TESSELATION = 32;
     private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
 
     private void Awake() {
-        _canvasTex = new RenderTexture(CANVAS_RES.x, CANVAS_RES.y, 24);
+        _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24);
         _canvasTex.Create();
 
         _camera = gameObject.GetComponent<Camera>();
-        _camera.orthographicSize = 6f;
-        _camera.clearFlags = CameraClearFlags.SolidColor;
+        _camera.orthographicSize = 4f;
+        _camera.clearFlags = CameraClearFlags.Nothing;
         _camera.backgroundColor = Color.white;
         _camera.orthographic = true;
         // _camera.targetTexture = _canvasTex;
+        // _camera.enabled = false;
 
         _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
@@ -72,7 +71,7 @@ public class Painter : MonoBehaviour {
         _commandBuffer = new CommandBuffer();
         // Todo: what does the instanceCount parameter do here?
         _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, 0, MeshTopology.Triangles, _brushVerts.Length, 1);
-        _camera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, _commandBuffer);
+        _camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
 
         _curves = new NativeArray<float2>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
@@ -113,8 +112,19 @@ public class Painter : MonoBehaviour {
         _handle.Complete();
 
         _brushBuffer.SetData(_brushVerts);
-        _camera.Render();
+
+        // _camera.Render();
     }
+
+    // void OnPreRender() {
+    //     _camera.targetTexture = _canvasTex;
+    // }
+
+    // void OnPostrender() {
+    //     Debug.Log("Onpost");
+    //     _camera.targetTexture = null;
+    //     Graphics.Blit(_canvasTex, null as RenderTexture);
+    // }
 
     private void OnDrawGizmos() {
         if (!Application.isPlaying) {
@@ -224,7 +234,7 @@ public class Painter : MonoBehaviour {
                 float lightA = (0.3f + 0.7f * uvYA);
                 float lightB = (0.3f + 0.7f * uvYB);
 
-                float uvTiling = 3f;
+                float uvTiling = 1f;
 
                 // Triangle 1
                 v.vertex = posA - norA;
