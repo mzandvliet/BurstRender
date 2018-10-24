@@ -16,13 +16,10 @@ using System.Runtime.InteropServices;
     - a field of grass growing on smooth hills
     - a sphere, with lighting
     - ink outlines, with colored in gradients, respecting lighting.
+    - this means define 3d spline geometry, project to 2d
+        - Now think about order, sorting, planning
     
-    Ideas:
-
-    - Having analytic projection from 3d cubic curve to 2d screenspace cubic curve will be useful
-    - Can use distance fields to model scenes including curvature/normal information
-    - Scene geometry should express how it wants to be drawn. Saves analysis.
-    - Could draw into multiple intermediate canvasses that could parallax without needing redraw
+    Record videos
 
  */
 
@@ -34,7 +31,6 @@ public struct Vertex {
 };
 
 public class Painter : MonoBehaviour {
-    private Transform _cameraObject;
     private Camera _camera;
     private CommandBuffer _commandBuffer;
 
@@ -53,25 +49,21 @@ public class Painter : MonoBehaviour {
 
     private static readonly int2 CANVAS_RES = new int2(1920, 1080);
 
-    private const int NUM_CURVES = 128;
+    private const int NUM_CURVES = 1;
     private const int CONTROLS_PER_CURVE = 4;
-    private const int CURVE_TESSELATION = 16;
+    private const int CURVE_TESSELATION = 6;
     private const int VERTS_PER_TESSEL = 6;
 
     private void Awake() {
         _canvasTex = new RenderTexture(CANVAS_RES.x, CANVAS_RES.y, 24);
         _canvasTex.Create();
 
-        _cameraObject = new GameObject("BrushCamera").transform;
-        _cameraObject.transform.position = new Vector3(5f, 5f, -10f);
-        _camera = _cameraObject.gameObject.AddComponent<Camera>();
-        _camera.orthographicSize = 3.5f;
+        _camera = gameObject.GetComponent<Camera>();
+        _camera.orthographicSize = 6f;
         _camera.clearFlags = CameraClearFlags.SolidColor;
         _camera.backgroundColor = Color.white;
         _camera.orthographic = true;
-        _camera.targetTexture = _canvasTex;
-        _camera.enabled = false;
-        _camera.clearFlags = CameraClearFlags.Nothing;
+        // _camera.targetTexture = _canvasTex;
 
         _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
@@ -127,10 +119,6 @@ public class Painter : MonoBehaviour {
         _camera.Render();
     }
 
-    private void OnGUI() {
-        GUI.DrawTexture(new Rect(0,0, Screen.width, Screen.height), _canvasTex, ScaleMode.ScaleToFit);
-    }
-
     private void OnDrawGizmos() {
         if (!Application.isPlaying) {
             return;
@@ -148,8 +136,16 @@ public class Painter : MonoBehaviour {
         for (int i = 1; i <= steps; i++) {
             float t = (i / (float)steps);
             float2 p = BDCCubic2d.Get(_curves, t);
+            float2 tg = BDCCubic2d.GetTangent(_curves, t);
+            float2 n = BDCCubic2d.GetNormal(_curves, t);
             Gizmos.DrawLine(Math.ToVec3(pPrev), Math.ToVec3(p));
             Gizmos.DrawSphere(Math.ToVec3(p), 0.01f);
+
+            Gizmos.color = Color.blue;
+            Gizmos.DrawRay(Math.ToVec3(p), Math.ToVec3(n));
+            Gizmos.color = Color.green;
+            Gizmos.DrawRay(Math.ToVec3(p), Math.ToVec3(tg));
+            
             pPrev = p;
         }
     }
@@ -174,7 +170,7 @@ public class Painter : MonoBehaviour {
             float2 p = new float2(_rng.NextFloat(0f, 10f), _rng.NextFloat(0.5f, 1f));
             for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                 _curves[i * CONTROLS_PER_CURVE + j] = p;
-                p += new float2(_rng.NextFloat(-0.33f, 0.33f), _rng.NextFloat(0.5f, 1f));
+                p += new float2(_rng.NextFloat(-1f, 0.5f), _rng.NextFloat(0.1f, 2f));
             }
 
             _colors[i] = new float3(_rng.NextFloat(0.3f, 0.5f), _rng.NextFloat(0.6f, 0.8f), _rng.NextFloat(0.3f, 0.6f));
@@ -203,21 +199,22 @@ public class Painter : MonoBehaviour {
                 float tA = i / (float)(CURVE_TESSELATION);
 
                 float3 posA = ToFloat3(BDCCubic2d.GetAt(_curves, tA, firstControl));
-                float3 norA = ToFloat3(BDCCubic2d.GetNormalAt(_curves, tA, firstControl));
-                float3 tngA = ToFloat3(BDCCubic2d.GetTangentAt(_curves, tA, firstControl));
+                float3 norA = ToFloat3(-BDCCubic2d.GetNormalAt(_curves, tA, firstControl));
 
                 float tB = (i + 1) / (float)(CURVE_TESSELATION);
                 float3 posB = ToFloat3(BDCCubic2d.GetAt(_curves, tB, firstControl));
-                float3 norB = ToFloat3(BDCCubic2d.GetNormalAt(_curves, tB, firstControl));
-                float3 tngB = ToFloat3(BDCCubic2d.GetTangentAt(_curves, tB, firstControl));
+                float3 norB = ToFloat3(-BDCCubic2d.GetNormalAt(_curves, tB, firstControl));
 
                 // todo: linearize the uvs using cached distances or lower degree Berstein Polys
                 float uvYA = tA;
                 float uvYB = tB;
 
-                const float maxWidth = 0.1f;
-                float widthA = math.pow(RampUpDown(tA), 0.5f) * maxWidth;
-                float widthB = math.pow(RampUpDown(tB), 0.5f) * maxWidth;
+                const float maxWidth = 0.25f;
+                // Bug: the below ramps for a and b are off-by-one w.r.t. each other.
+                float widthA = RampUpDown(tA) * maxWidth;
+                float widthB = RampUpDown(tB) * maxWidth;
+                // float widthA = maxWidth;
+                // float widthB = maxWidth;
 
                 var v = new Vertex();
                 v.normal = new float3(0, 0, -1);
