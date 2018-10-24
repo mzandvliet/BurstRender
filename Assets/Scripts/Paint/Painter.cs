@@ -94,9 +94,9 @@ public class Painter : MonoBehaviour {
     private void Update() {
         if (Time.frameCount % 15 == 0) {
             var genJob = new GenerateRandomCurvesJob();
-            genJob._rng = new Rng((uint)_rng.NextInt());
-            genJob._curves = _curves;
-            genJob._colors = _colors;
+            genJob.rng = new Rng((uint)_rng.NextInt());
+            genJob.curves = _curves;
+            genJob.colors = _colors;
             var h = genJob.Schedule(NUM_CURVES, 8);
 
             var tessJob = new TesslateCurvesJob();
@@ -154,21 +154,21 @@ public class Painter : MonoBehaviour {
 
 
     private struct GenerateRandomCurvesJob : IJobParallelFor {
-        public Rng _rng;
+        public Rng rng;
 
-        [NativeDisableParallelForRestriction] public NativeArray<float2> _curves;
-        [NativeDisableParallelForRestriction] public NativeArray<float3> _colors;
+        [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
+        [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
 
         public void Execute(int i) {
-            float2 p = new float2(_rng.NextFloat(0f, 10f), _rng.NextFloat(0.5f, 1f));
+            float2 p = new float2(rng.NextFloat(0f, 10f), rng.NextFloat(0.5f, 1f));
             // float2 p = new float2(5f, 1f);
             for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                _curves[i * CONTROLS_PER_CURVE + j] = p;
-                p += new float2(_rng.NextFloat(-1f, 0.5f), _rng.NextFloat(1f, 2f));
+                curves[i * CONTROLS_PER_CURVE + j] = p;
+                p += new float2(rng.NextFloat(-1f, 0.5f), rng.NextFloat(1f, 2f));
                 // p += new float2(j % 2 == 0 ? -j * 2: j * 3, 3f);
             }
 
-            _colors[i] = new float3(_rng.NextFloat(0.3f, 0.5f), _rng.NextFloat(0.6f, 0.8f), _rng.NextFloat(0.3f, 0.6f));
+            colors[i] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
             // _colors[i] = new float3(1,1,1);
         }
     }
