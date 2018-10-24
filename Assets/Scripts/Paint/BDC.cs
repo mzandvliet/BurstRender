@@ -6,13 +6,10 @@ using Unity.Mathematics;
 using Rng = Unity.Mathematics.Random;
 
 // Borrowing from: https://www.youtube.com/watch?v=o9RK6O2kOKo
-public static class BDC3Cube {
-    public static float3 Lerp(in float3 a, in float3 b, in float t) {
-        return t * a + (1f - t) * b;
-    }
+public static class BDDCubic3d {
     public static float3 EvaluateCasteljau(NativeArray<float3> c, in float t) {
-        float3 bc = Lerp(c[1], c[2], t);
-        return Lerp(Lerp(Lerp(c[0], c[1], t), bc, t), Lerp(bc, Lerp(c[2], c[3], t), t), t);
+        float3 bc = math.lerp(c[1], c[2], t);
+        return math.lerp(math.lerp(math.lerp(c[0], c[1], t), bc, t), math.lerp(bc, math.lerp(c[2], c[3], t), t), t);
     }
 
     public static float3 Evaluate(NativeArray<float3> c, in float t) {
@@ -82,7 +79,7 @@ public static class BDC3Cube {
     }
 
     // Instead of storing at linear t spacing, why not store with non-linear t-spacing and lerp between them
-    public static void CacheDistances(NativeArray<float3> c, NativeArray<float> outDistances) {
+    public static void CacheDistancesAt(NativeArray<float3> c, NativeArray<float> outDistances) {
         float dist = 0;
         outDistances[0] = 0f;
         float3 pPrev = c[0];
@@ -208,14 +205,27 @@ public static class BDCCubic2d {
             pPrev = p;
         }
     }
+
+    public static void CacheDistancesAt(NativeArray<float2> c, NativeArray<float> outDistances, in int idx) {
+        float dist = 0;
+        outDistances[0] = 0f;
+        float2 pPrev = c[0];
+        for (int i = 1; i < outDistances.Length; i++) {
+            float t = i / (float)(outDistances.Length - 1);
+            float2 p = GetAt(c, t, idx);
+            dist += math.length(p - pPrev);
+            outDistances[i] = dist;
+            pPrev = p;
+        }
+    }
 }
 
-public static class BDC3Quad {
-    public static float3 EvaluateCasteljau(in float3 a, in float3 b, in float3 c, in float t) {
+public static class BDCQuadratic3d {
+    public static float3 GetCasteljau(in float3 a, in float3 b, in float3 c, in float t) {
         return math.lerp(math.lerp(a, b, t), math.lerp(b, c, t), t);
     }
 
-    public static float3 Evaluate(in float3 a, in float3 b, in float3 c, in float t) {
+    public static float3 Get(in float3 a, in float3 b, in float3 c, in float t) {
         float3 u = 1f - t;
         return u * u * a + 2f * t * u * b + t * t * c;
     }
@@ -223,8 +233,8 @@ public static class BDC3Quad {
     public static float3 EvaluateNormalApprox(float3 a, float3 b, float3 c, float t) {
         const float EPS = 0.001f;
 
-        float3 p0 = Evaluate(a, b, c, t - EPS);
-        float3 p1 = Evaluate(a, b, c, t + EPS);
+        float3 p0 = Get(a, b, c, t - EPS);
+        float3 p1 = Get(a, b, c, t + EPS);
 
         return math.cross(new float3(0, 0, 1), math.normalize(p1 - p0));
     }
@@ -232,10 +242,10 @@ public static class BDC3Quad {
     public static float LengthEuclidApprox(in float3 a, in float3 b, in float3 c, in int steps) {
         float dist = 0;
 
-        float3 pPrev = Evaluate(a, b, c, 0f);
+        float3 pPrev = Get(a, b, c, 0f);
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)steps;
-            float3 p = Evaluate(a, b, c, t);
+            float3 p = Get(a, b, c, t);
             dist += math.length(p - pPrev);
             pPrev = p;
         }
@@ -246,10 +256,10 @@ public static class BDC3Quad {
     public static float LengthEuclidApprox(in float3 a, in float3 b, in float3 c, in int steps, in float t) {
         float dist = 0;
 
-        float3 pPrev = Evaluate(a, b, c, 0f);
+        float3 pPrev = Get(a, b, c, 0f);
         for (int i = 1; i <= steps; i++) {
             float tNow = t * (i / (float)steps);
-            float3 p = Evaluate(a, b, c, tNow);
+            float3 p = Get(a, b, c, tNow);
             dist += math.length(p - pPrev);
             pPrev = p;
         }
@@ -270,10 +280,10 @@ public static class BDC3Quad {
     public static void CacheDistances(in float3 a, in float3 b, in float3 c, NativeArray<float> outDistances) {
         float dist = 0;
         outDistances[0] = 0f;
-        float3 pPrev = Evaluate(a, b, c, 0f); // Todo: this is just point a
+        float3 pPrev = Get(a, b, c, 0f); // Todo: this is just point a
         for (int i = 1; i < outDistances.Length; i++) {
             float t = i / (float)(outDistances.Length - 1);
-            float3 p = Evaluate(a, b, c, t);
+            float3 p = Get(a, b, c, t);
             dist += math.length(p - pPrev);
             outDistances[i] = dist;
             pPrev = p;
@@ -282,12 +292,12 @@ public static class BDC3Quad {
 }
 
 
-public static class BDC2 {
-    public static float2 EvaluateWithLerp(in float2 a, in float2 b, in float2 c, in float t) {
+public static class BDCQuadratic2d {
+    public static float2 GetCasteljau(in float2 a, in float2 b, in float2 c, in float t) {
         return math.lerp(math.lerp(a, b, t), math.lerp(b, c, t), t);
     }
 
-    public static float2 Evaluate(in float2 a, in float2 b, in float2 c, in float t) {
+    public static float2 Get(in float2 a, in float2 b, in float2 c, in float t) {
         float2 u = 1f - t;
         return u * u * a + 2f * t * u * b + t * t * c;
     }
@@ -295,10 +305,10 @@ public static class BDC2 {
     public static float LengthEuclidean(in float2 a, in float2 b, in float2 c, in int steps) {
         float dist = 0;
 
-        float2 pPrev = BDC2.Evaluate(a, b, c, 0f);
+        float2 pPrev = BDCQuadratic2d.Get(a, b, c, 0f);
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)steps;
-            float2 p = BDC2.Evaluate(a, b, c, t);
+            float2 p = BDCQuadratic2d.Get(a, b, c, t);
             dist += math.length(p - pPrev);
             pPrev = p;
         }

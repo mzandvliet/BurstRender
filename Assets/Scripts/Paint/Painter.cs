@@ -42,7 +42,6 @@ public class Painter : MonoBehaviour {
     
     private NativeArray<float2> _curves;
     private NativeArray<float3> _colors;
-    private NativeArray<float> _distanceCache;
     private Rng _rng;
 
     private RenderTexture _canvasTex;
@@ -51,7 +50,7 @@ public class Painter : MonoBehaviour {
 
     private const int NUM_CURVES = 1;
     private const int CONTROLS_PER_CURVE = 4;
-    private const int CURVE_TESSELATION = 6;
+    private const int CURVE_TESSELATION = 4;
     private const int VERTS_PER_TESSEL = 6;
 
     private void Awake() {
@@ -77,7 +76,6 @@ public class Painter : MonoBehaviour {
 
         _curves = new NativeArray<float2>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
-        _distanceCache = new NativeArray<float>(32, Allocator.Persistent);
 
         _rng = new Rng(1234);
     }
@@ -86,7 +84,6 @@ public class Painter : MonoBehaviour {
         _curves.Dispose();
         _colors.Dispose();
         _brushVerts.Dispose();
-        _distanceCache.Dispose();
 
         _brushBuffer.Dispose();
         _canvasTex.Release();
@@ -103,9 +100,9 @@ public class Painter : MonoBehaviour {
             var h = genJob.Schedule(NUM_CURVES, 8);
 
             var tessJob = new TesslateCurvesJob();
-            tessJob._curves = _curves;
-            tessJob._colors = _colors;
-            tessJob._brushVerts = _brushVerts;
+            tessJob.curves = _curves;
+            tessJob.colors = _colors;
+            tessJob.brushVerts = _brushVerts;
             _handle = tessJob.Schedule(NUM_CURVES, 1, h);
 
             JobHandle.ScheduleBatchedJobs();
@@ -134,7 +131,7 @@ public class Painter : MonoBehaviour {
         Gizmos.DrawSphere(Math.ToVec3(pPrev), 0.01f);
         int steps = 16;
         for (int i = 1; i <= steps; i++) {
-            float t = (i / (float)steps);
+            float t = i / (float)(steps);
             float2 p = BDCCubic2d.Get(_curves, t);
             float2 tg = BDCCubic2d.GetTangent(_curves, t);
             float2 n = BDCCubic2d.GetNormal(_curves, t);
@@ -151,11 +148,6 @@ public class Painter : MonoBehaviour {
         }
     }
 
-
-    private static float RampUpDown(in float i) {
-        return i <= 0.5f ? i * 2f : 2f - (i * 2f);
-    }
-
     private static float3 ToFloat3(in float2 v) {
         return new float3(v.x, v.y, 0f);
     }
@@ -169,12 +161,15 @@ public class Painter : MonoBehaviour {
 
         public void Execute(int i) {
             float2 p = new float2(_rng.NextFloat(0f, 10f), _rng.NextFloat(0.5f, 1f));
+            // float2 p = new float2(5f, 1f);
             for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                 _curves[i * CONTROLS_PER_CURVE + j] = p;
-                p += new float2(_rng.NextFloat(-1f, 0.5f), _rng.NextFloat(0.1f, 2f));
+                p += new float2(_rng.NextFloat(-1f, 0.5f), _rng.NextFloat(1f, 2f));
+                // p += new float2(j % 2 == 0 ? -j * 2: j * 3, 3f);
             }
 
             _colors[i] = new float3(_rng.NextFloat(0.3f, 0.5f), _rng.NextFloat(0.6f, 0.8f), _rng.NextFloat(0.3f, 0.6f));
+            // _colors[i] = new float3(1,1,1);
         }
     }
 
@@ -182,75 +177,94 @@ public class Painter : MonoBehaviour {
     /*
         Todo: 
         
+        The way I'm tesselating quickly gives rise to messed up uv flow due to quad shapes
         Strong enough curvature will make the outer edges overlap and flip triangles
+        If I add middle vertices in the right place, it might work better.
         
         maaaay want to do this in a ComputeShader instead, we'll see
      */
 
     private struct TesslateCurvesJob : IJobParallelFor {
-        [NativeDisableParallelForRestriction] public NativeArray<float2> _curves;
-        public NativeArray<float3> _colors;
-        [NativeDisableParallelForRestriction] public NativeArray<Vertex> _brushVerts;
+        [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
+        public NativeArray<float3> colors;
+        [NativeDisableParallelForRestriction] public NativeArray<Vertex> brushVerts;
 
         public void Execute(int curveId) {
             int vertOffset = curveId * CURVE_TESSELATION * VERTS_PER_TESSEL;
             int firstControl = curveId * CONTROLS_PER_CURVE;
 
+            var distances = new NativeArray<float>(8, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            BDCCubic2d.CacheDistancesAt(curves, distances, firstControl);
+
             for (int i = 0; i < CURVE_TESSELATION; i++) {
                 float tA = i / (float)(CURVE_TESSELATION);
 
-                float3 posA = ToFloat3(BDCCubic2d.GetAt(_curves, tA, firstControl));
-                float3 norA = ToFloat3(-BDCCubic2d.GetNormalAt(_curves, tA, firstControl));
+                float3 posA = ToFloat3(BDCCubic2d.GetAt(curves, tA, firstControl));
+                float3 norA = ToFloat3(-BDCCubic2d.GetNormalAt(curves, tA, firstControl));
 
                 float tB = (i + 1) / (float)(CURVE_TESSELATION);
-                float3 posB = ToFloat3(BDCCubic2d.GetAt(_curves, tB, firstControl));
-                float3 norB = ToFloat3(-BDCCubic2d.GetNormalAt(_curves, tB, firstControl));
+                float3 posB = ToFloat3(BDCCubic2d.GetAt(curves, tB, firstControl));
+                float3 norB = ToFloat3(-BDCCubic2d.GetNormalAt(curves, tB, firstControl));
 
                 // todo: linearize the uvs using cached distances or lower degree Berstein Polys
-                float uvYA = tA;
-                float uvYB = tB;
+                float uvYA = BDCCubic2d.GetLength(distances, i / (float)(CURVE_TESSELATION)) / (distances[distances.Length - 1]);
+                float uvYB = BDCCubic2d.GetLength(distances, (i+1) / (float)(CURVE_TESSELATION)) / distances[distances.Length - 1];
 
-                const float maxWidth = 0.25f;
+                const float maxWidth = 0.5f;
                 // Bug: the below ramps for a and b are off-by-one w.r.t. each other.
-                float widthA = RampUpDown(tA) * maxWidth;
-                float widthB = RampUpDown(tB) * maxWidth;
+                float widthA = (0.4f + 0.6f * RampUpDown(uvYA)) * maxWidth;
+                float widthB = (0.4f + 0.6f * RampUpDown(uvYB)) * maxWidth;
                 // float widthA = maxWidth;
                 // float widthB = maxWidth;
 
+                norA *= widthA;
+                norB *= widthB;
+
+                int quadStartIdx = vertOffset + i * VERTS_PER_TESSEL;
+
                 var v = new Vertex();
                 v.normal = new float3(0, 0, -1);
-                float lightA = (0.3f + 0.7f * tA);
-                float lightB = (0.3f + 0.7f * tB);
+                float lightA = (0.3f + 0.7f * uvYA);
+                float lightB = (0.3f + 0.7f * uvYB);
 
-                v.vertex = posA - norA * widthA;
-                v.uv = new float2(0, uvYA);
-                v.color = _colors[curveId] * lightA;
-                _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 0] = v;
+                // Triangle 1
+                v.vertex = posA - norA;
+                v.uv = new float2(0, uvYA * CURVE_TESSELATION);
+                v.color = colors[curveId] * lightA;
+                brushVerts[quadStartIdx + 0] = v;
 
-                v.vertex = posB - norB * widthB;
-                v.uv = new float2(0, uvYB);
-                v.color = _colors[curveId] * lightB;
-                _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 1] = v;
+                v.vertex = posB - norB;
+                v.uv = new float2(0, uvYB * CURVE_TESSELATION);
+                v.color = colors[curveId] * lightB;
+                brushVerts[quadStartIdx + 1] = v;
 
-                v.vertex = posB + norB * widthB;
-                v.uv = new float2(1, uvYB);
-                v.color = _colors[curveId] * lightB;
-                _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 2] = v;
+                v.vertex = posB + norB;
+                v.uv = new float2(1, uvYB * CURVE_TESSELATION);
+                v.color = colors[curveId] * lightB;
+                brushVerts[quadStartIdx + 2] = v;
 
-                v.vertex = posA - norA * widthA;
-                v.uv = new float2(0, uvYA);
-                v.color = _colors[curveId] * lightA;
-                _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 3] = v;
+                // Triangle 2
 
-                v.vertex = posB + norB * widthB;
-                v.uv = new float2(1, uvYB);
-                v.color = _colors[curveId] * lightB;
-                _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 4] = v;
+                v.vertex = posB + norB;
+                v.uv = new float2(1, uvYB * CURVE_TESSELATION);
+                v.color = colors[curveId] * lightB;
+                brushVerts[quadStartIdx + 3] = v;
 
-                v.vertex = posA + norA * widthA;
-                v.uv = new float2(1, uvYA);
-                v.color = _colors[curveId] * lightA;
-                _brushVerts[vertOffset + i * VERTS_PER_TESSEL + 5] = v;
+                v.vertex = posA + norA;
+                v.uv = new float2(1, uvYA * CURVE_TESSELATION);
+                v.color = colors[curveId] * lightA;
+                brushVerts[quadStartIdx + 4] = v;
+
+                v.vertex = posA - norA;
+                v.uv = new float2(0, uvYA * CURVE_TESSELATION);
+                v.color = colors[curveId] * lightA;
+                brushVerts[quadStartIdx + 5] = v;
+            }
+
+            distances.Dispose();
+
+            float RampUpDown(in float i) {
+                return math.pow(i <= 0.5f ? i * 2f : 2f - (i * 2f), 1f);
             }
         }
     }
