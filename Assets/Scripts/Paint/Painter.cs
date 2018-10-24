@@ -41,12 +41,13 @@ public class Painter : MonoBehaviour {
     
     
     private NativeArray<float2> _curves;
+    private NativeArray<float> _widths;
     private NativeArray<float3> _colors;
     private Rng _rng;
 
     private RenderTexture _canvasTex;
 
-    private const int NUM_CURVES = 128;
+    private const int NUM_CURVES = 15;
     private const int CONTROLS_PER_CURVE = 4;
     private const int CURVE_TESSELATION = 32;
     private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
@@ -74,16 +75,36 @@ public class Painter : MonoBehaviour {
         _camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
 
         _curves = new NativeArray<float2>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
+        _widths = new NativeArray<float>(NUM_CURVES, Allocator.Persistent);
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
 
+        for (int i = 0; i < _widths.Length; i++) {
+            int level = GetLevel(i);
+            Debug.Log(i + ", " + level + ", " + GetFirstCurveIndexForLevel(level) + ", " + GetCurveCountForLevel(level));
+            _widths[i] = 0.5f / (1+level);
+        }
+
         _rng = new Rng(1234);
+    }
+
+    private static int GetLevel(int i) {
+        return (int)math.floor(math.log2(1 + i));
+    }
+
+    private static int GetFirstCurveIndexForLevel(int l) {
+        return (int)math.floor(math.exp2(l)) - 1;
+    }
+
+    private static int GetCurveCountForLevel(int l) {
+        return (int)math.floor(math.exp2(l));
     }
 
     private void OnDestroy() {
         _curves.Dispose();
         _colors.Dispose();
-        _brushVerts.Dispose();
+        _widths.Dispose();
 
+        _brushVerts.Dispose();
         _brushBuffer.Dispose();
         _canvasTex.Release();
     }
@@ -92,14 +113,25 @@ public class Painter : MonoBehaviour {
 
     private void Update() {
         if (Time.frameCount % 15 == 0) {
-            var genJob = new GenerateRandomCurvesJob();
+            var genJob = new GenerateFirstCurveJob();
+            genJob.curveIdx = 0;
             genJob.rng = new Rng((uint)_rng.NextInt());
             genJob.curves = _curves;
             genJob.colors = _colors;
-            var h = genJob.Schedule(NUM_CURVES, 8);
+            var h = genJob.Schedule();
+
+            for (int i = 1; i < 4; i++) {
+                var gennJob = new GenerateCurveOnCurveJob();
+                gennJob.level = i;
+                gennJob.rng = new Rng((uint)_rng.NextInt());
+                gennJob.curves = _curves;
+                gennJob.colors = _colors;
+                h = gennJob.Schedule(h);
+            }
 
             var tessJob = new TesslateCurvesJob();
             tessJob.curves = _curves;
+            tessJob.widths = _widths;
             tessJob.colors = _colors;
             tessJob.brushVerts = _brushVerts;
             _handle = tessJob.Schedule(NUM_CURVES, 1, h);
@@ -163,23 +195,66 @@ public class Painter : MonoBehaviour {
     }
 
 
-    private struct GenerateRandomCurvesJob : IJobParallelFor {
+    private struct GenerateFirstCurveJob : IJob {
         public Rng rng;
+        public int curveIdx;
 
         [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
         [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
 
-        public void Execute(int i) {
-            float2 p = new float2(rng.NextFloat(0f, 10f), rng.NextFloat(0.5f, 1f));
-            // float2 p = new float2(5f, 1f);
+        public void Execute() {
+            float2 baseDir = new float2(0, 2);
+            float2 rotor;
+            math.sincos(Math.Pi * -rng.NextFloat(-0.15f, 0.25f), out rotor.y, out rotor.x);
+            
+            float2 p = new float2(rng.NextFloat(1f, 9f), rng.NextFloat(0.5f, 2f));
+            float2 dir = baseDir;
             for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                curves[i * CONTROLS_PER_CURVE + j] = p;
-                p += new float2(rng.NextFloat(-1f, 0.5f), rng.NextFloat(1f, 2f));
-                // p += new float2(j % 2 == 0 ? -j * 2: j * 3, 3f);
+                curves[curveIdx * CONTROLS_PER_CURVE + j] = p;
+                p += dir;
+                dir = Complex.Mul(rotor, dir);
             }
 
-            colors[i] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
-            // _colors[i] = new float3(1,1,1);
+            colors[curveIdx] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
+        }
+    }
+
+    private struct GenerateCurveOnCurveJob : IJob {
+        public Rng rng;
+        public int level;
+
+        [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
+        [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
+
+        public void Execute() {
+            int firstCurveIdx = GetFirstCurveIndexForLevel(level);
+            int levelCurveCount = GetCurveCountForLevel(level);
+
+            for (int i = 0; i < levelCurveCount; i++) {
+                int parentIdx = (GetFirstCurveIndexForLevel(level - 1) + i % levelCurveCount/2) * CONTROLS_PER_CURVE;
+                float tParent = (1+i) / (float)(levelCurveCount+1);
+                
+                var p = BDCCubic2d.GetAt(curves, tParent, parentIdx);
+                var baseDir = BDCCubic2d.GetNormalAt(curves, tParent, parentIdx) * (2f / math.pow((float)(level+1), 2f));
+
+                float flip = i % 2 == 0 ? 1f : -1f;
+                baseDir *= flip;
+
+                float angle = Math.Pi * -rng.NextFloat(0.05f, 0.25f) * flip;
+                float2 rotor;
+                math.sincos(angle, out rotor.y, out rotor.x);
+
+                float2 dir = baseDir;
+                for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
+                    curves[firstCurveIdx * CONTROLS_PER_CURVE + i * CONTROLS_PER_CURVE + j] = p;
+                    p += dir;
+                    dir = Complex.Mul(rotor, dir);
+                }
+
+                colors[firstCurveIdx + i] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
+            }
+
+            
         }
     }
 
@@ -197,6 +272,7 @@ public class Painter : MonoBehaviour {
     private struct TesslateCurvesJob : IJobParallelFor {
         [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
         public NativeArray<float3> colors;
+        public NativeArray<float> widths;
         [NativeDisableParallelForRestriction] public NativeArray<Vertex> brushVerts;
 
         public void Execute(int curveId) {
@@ -220,9 +296,8 @@ public class Painter : MonoBehaviour {
                 float uvYA = tA;//BDCCubic2d.GetLength(distances, i / (float)(CURVE_TESSELATION)) / (distances[distances.Length - 1]);
                 float uvYB = tB;//BDCCubic2d.GetLength(distances, (i+1) / (float)(CURVE_TESSELATION)) / distances[distances.Length - 1];
 
-                const float maxWidth = 0.5f;
-                float widthA = (0.4f + 0.6f * RampUpDown(uvYA)) * maxWidth;
-                float widthB = (0.4f + 0.6f * RampUpDown(uvYB)) * maxWidth;
+                float widthA = (0.4f + 0.6f * RampUpDown(uvYA)) * widths[curveId];
+                float widthB = (0.4f + 0.6f * RampUpDown(uvYB)) * widths[curveId];
 
                 norA *= widthA;
                 norB *= widthB;
@@ -305,7 +380,7 @@ public class Painter : MonoBehaviour {
             // distances.Dispose();
 
             float RampUpDown(in float i) {
-                return math.pow(i <= 0.5f ? i * 2f : 2f - (i * 2f), 1f);
+                return math.pow(i <= 0.5f ? i * 2f : 2f - (i * 2f), 0.5f);
             }
         }
     }

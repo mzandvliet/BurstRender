@@ -4,6 +4,14 @@ using Random = Unity.Mathematics.Random;
 using UnityEngine;
 
 namespace Ramjet {
+    public static class Complex {
+        public static float2 Mul(float2 a, float2 b) {
+            return new float2(
+                a.x * b.x - a.y * b.y,
+                a.x * b.y + a.y * b.x);
+        }
+    }
+
     public static class Math {
         public const float Tau = 6.2831853071795864769f;
         public const float Pi = Tau / 2f;
