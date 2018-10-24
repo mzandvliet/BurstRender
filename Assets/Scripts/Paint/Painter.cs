@@ -11,15 +11,12 @@ using System.Runtime.InteropServices;
 /* 
     Todo: 
 
-    Sort out blending
-    Start defining some geometries you want to draw, like:
-    - a field of grass growing on smooth hills
-    - a sphere, with lighting
-    - ink outlines, with colored in gradients, respecting lighting.
-    - this means define 3d spline geometry, project to 2d
-        - Now think about order, sorting, planning
-    
-    Record videos
+    Iterative painting to canvas. Generate a few new strokes, add to existing canvas data. Render intermediate canvas to screen.
+
+    Make it such that a spline path can be arbitary length. Possibly gets multi-stroke if longer than x.
+
+    Then we can start generating some Gogh-likes by spiraling splines around attractors.
+
 
  */
 
@@ -53,16 +50,16 @@ public class Painter : MonoBehaviour {
     private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
 
     private void Awake() {
-        _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24);
+        _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24, RenderTextureFormat.ARGB32);
         _canvasTex.Create();
 
         _camera = gameObject.GetComponent<Camera>();
         _camera.orthographicSize = 4f;
-        _camera.clearFlags = CameraClearFlags.Nothing;
-        _camera.backgroundColor = Color.white;
+        _camera.clearFlags = CameraClearFlags.SolidColor;
+        _camera.backgroundColor = new Color(0,0,0,0);
         _camera.orthographic = true;
-        // _camera.targetTexture = _canvasTex;
-        // _camera.enabled = false;
+        _camera.targetTexture = _canvasTex;
+        _camera.enabled = false;
 
         _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
@@ -71,6 +68,7 @@ public class Painter : MonoBehaviour {
 
         _commandBuffer = new CommandBuffer();
         // Todo: what does the instanceCount parameter do here?
+        _commandBuffer.ClearRenderTarget(true, true, new Color(0,0,0,0));
         _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, 0, MeshTopology.Triangles, _brushVerts.Length, 1);
         _camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
 
@@ -87,8 +85,13 @@ public class Painter : MonoBehaviour {
         _rng = new Rng(1234);
     }
 
+    public RenderTexture GetCanvas() {
+        return _canvasTex;
+    }
+
     private static int GetLevel(int i) {
         return (int)math.floor(math.log2(1 + i));
+
     }
 
     private static int GetFirstCurveIndexForLevel(int l) {
@@ -112,7 +115,7 @@ public class Painter : MonoBehaviour {
     private JobHandle _handle;
 
     private void Update() {
-        if (Time.frameCount % 15 == 0) {
+        if (Time.frameCount % 5 == 0) {
             var genJob = new GenerateFirstCurveJob();
             genJob.curveIdx = 0;
             genJob.rng = new Rng((uint)_rng.NextInt());
@@ -142,10 +145,8 @@ public class Painter : MonoBehaviour {
 
     private void LateUpdate() {
         _handle.Complete();
-
         _brushBuffer.SetData(_brushVerts);
-
-        // _camera.Render();
+        _camera.Render();
     }
 
     // void OnPreRender() {
