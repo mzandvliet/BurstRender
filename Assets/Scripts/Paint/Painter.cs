@@ -50,8 +50,8 @@ public class Painter : MonoBehaviour {
 
     private const int NUM_CURVES = 1;
     private const int CONTROLS_PER_CURVE = 4;
-    private const int CURVE_TESSELATION = 4;
-    private const int VERTS_PER_TESSEL = 6;
+    private const int CURVE_TESSELATION = 16;
+    private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
 
     private void Awake() {
         _canvasTex = new RenderTexture(CANVAS_RES.x, CANVAS_RES.y, 24);
@@ -211,11 +211,8 @@ public class Painter : MonoBehaviour {
                 float uvYB = BDCCubic2d.GetLength(distances, (i+1) / (float)(CURVE_TESSELATION)) / distances[distances.Length - 1];
 
                 const float maxWidth = 0.5f;
-                // Bug: the below ramps for a and b are off-by-one w.r.t. each other.
                 float widthA = (0.4f + 0.6f * RampUpDown(uvYA)) * maxWidth;
                 float widthB = (0.4f + 0.6f * RampUpDown(uvYB)) * maxWidth;
-                // float widthA = maxWidth;
-                // float widthB = maxWidth;
 
                 norA *= widthA;
                 norB *= widthB;
@@ -227,38 +224,72 @@ public class Painter : MonoBehaviour {
                 float lightA = (0.3f + 0.7f * uvYA);
                 float lightB = (0.3f + 0.7f * uvYB);
 
+                float uvTiling = 3f;
+
                 // Triangle 1
                 v.vertex = posA - norA;
-                v.uv = new float2(0, uvYA * CURVE_TESSELATION);
+                v.uv = new float2(0, uvYA * uvTiling);
                 v.color = colors[curveId] * lightA;
                 brushVerts[quadStartIdx + 0] = v;
 
                 v.vertex = posB - norB;
-                v.uv = new float2(0, uvYB * CURVE_TESSELATION);
+                v.uv = new float2(0, uvYB * uvTiling);
                 v.color = colors[curveId] * lightB;
                 brushVerts[quadStartIdx + 1] = v;
 
-                v.vertex = posB + norB;
-                v.uv = new float2(1, uvYB * CURVE_TESSELATION);
+                v.vertex = posB;
+                v.uv = new float2(0.5f, uvYB * uvTiling);
                 v.color = colors[curveId] * lightB;
                 brushVerts[quadStartIdx + 2] = v;
 
                 // Triangle 2
-
-                v.vertex = posB + norB;
-                v.uv = new float2(1, uvYB * CURVE_TESSELATION);
+                v.vertex = posB;
+                v.uv = new float2(0.5f, uvYB * uvTiling);
                 v.color = colors[curveId] * lightB;
                 brushVerts[quadStartIdx + 3] = v;
 
-                v.vertex = posA + norA;
-                v.uv = new float2(1, uvYA * CURVE_TESSELATION);
+                v.vertex = posA;
+                v.uv = new float2(0.5f, uvYA * uvTiling);
                 v.color = colors[curveId] * lightA;
                 brushVerts[quadStartIdx + 4] = v;
 
                 v.vertex = posA - norA;
-                v.uv = new float2(0, uvYA * CURVE_TESSELATION);
+                v.uv = new float2(0f, uvYA * uvTiling);
                 v.color = colors[curveId] * lightA;
                 brushVerts[quadStartIdx + 5] = v;
+
+                // Triangle 3
+                v.vertex = posA;
+                v.uv = new float2(0.5f, uvYA * uvTiling);
+                v.color = colors[curveId] * lightA;
+                brushVerts[quadStartIdx + 6] = v;
+
+                v.vertex = posB;
+                v.uv = new float2(0.5f, uvYB * uvTiling);
+                v.color = colors[curveId] * lightB;
+                brushVerts[quadStartIdx + 7] = v;
+
+                v.vertex = posB + norB;
+                v.uv = new float2(1f, uvYB * uvTiling);
+                v.color = colors[curveId] * lightB;
+                brushVerts[quadStartIdx + 8] = v;
+
+                // Triangle 4
+
+                v.vertex = posB + norB;
+                v.uv = new float2(1f, uvYB * uvTiling);
+                v.color = colors[curveId] * lightB;
+                brushVerts[quadStartIdx + 9] = v;
+
+                v.vertex = posA + norA;
+                v.uv = new float2(1f, uvYA * uvTiling);
+                v.color = colors[curveId] * lightA;
+                brushVerts[quadStartIdx + 10] = v;
+
+                v.vertex = posA;
+                v.uv = new float2(0.5f, uvYA * uvTiling);
+                v.color = colors[curveId] * lightA;
+                brushVerts[quadStartIdx + 11] = v;
             }
 
             distances.Dispose();
