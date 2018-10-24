@@ -142,7 +142,8 @@ public class Painter : MonoBehaviour {
             Gizmos.DrawSphere(Math.ToVec3(p), 0.01f);
 
             Gizmos.color = Color.blue;
-            Gizmos.DrawRay(Math.ToVec3(p), Math.ToVec3(n));
+            Gizmos.DrawRay(Math.ToVec3(p), Math.ToVec3(n * 0.3f));
+            Gizmos.DrawRay(Math.ToVec3(p), -Math.ToVec3(n * 0.3f));
             Gizmos.color = Color.green;
             Gizmos.DrawRay(Math.ToVec3(p), Math.ToVec3(tg));
             
@@ -151,11 +152,11 @@ public class Painter : MonoBehaviour {
     }
 
 
-    private static float RampUpDown(float i) {
+    private static float RampUpDown(in float i) {
         return i <= 0.5f ? i * 2f : 2f - (i * 2f);
     }
 
-    private static float3 ToFloat3(float2 v) {
+    private static float3 ToFloat3(in float2 v) {
         return new float3(v.x, v.y, 0f);
     }
 
