@@ -48,7 +48,7 @@ public class Painter : MonoBehaviour {
 
     private static readonly int2 CANVAS_RES = new int2(1920, 1080);
 
-    private const int NUM_CURVES = 1;
+    private const int NUM_CURVES = 64;
     private const int CONTROLS_PER_CURVE = 4;
     private const int CURVE_TESSELATION = 16;
     private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
@@ -193,8 +193,8 @@ public class Painter : MonoBehaviour {
             int vertOffset = curveId * CURVE_TESSELATION * VERTS_PER_TESSEL;
             int firstControl = curveId * CONTROLS_PER_CURVE;
 
-            var distances = new NativeArray<float>(8, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            BDCCubic2d.CacheDistancesAt(curves, distances, firstControl);
+            // var distances = new NativeArray<float>(8, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            // BDCCubic2d.CacheDistancesAt(curves, distances, firstControl);
 
             for (int i = 0; i < CURVE_TESSELATION; i++) {
                 float tA = i / (float)(CURVE_TESSELATION);
@@ -207,8 +207,8 @@ public class Painter : MonoBehaviour {
                 float3 norB = ToFloat3(-BDCCubic2d.GetNormalAt(curves, tB, firstControl));
 
                 // todo: linearize the uvs using cached distances or lower degree Berstein Polys
-                float uvYA = BDCCubic2d.GetLength(distances, i / (float)(CURVE_TESSELATION)) / (distances[distances.Length - 1]);
-                float uvYB = BDCCubic2d.GetLength(distances, (i+1) / (float)(CURVE_TESSELATION)) / distances[distances.Length - 1];
+                float uvYA = tA;//BDCCubic2d.GetLength(distances, i / (float)(CURVE_TESSELATION)) / (distances[distances.Length - 1]);
+                float uvYB = tB;//BDCCubic2d.GetLength(distances, (i+1) / (float)(CURVE_TESSELATION)) / distances[distances.Length - 1];
 
                 const float maxWidth = 0.5f;
                 float widthA = (0.4f + 0.6f * RampUpDown(uvYA)) * maxWidth;
@@ -292,7 +292,7 @@ public class Painter : MonoBehaviour {
                 brushVerts[quadStartIdx + 11] = v;
             }
 
-            distances.Dispose();
+            // distances.Dispose();
 
             float RampUpDown(in float i) {
                 return math.pow(i <= 0.5f ? i * 2f : 2f - (i * 2f), 1f);
