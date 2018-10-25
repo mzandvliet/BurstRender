@@ -34,9 +34,6 @@ public class Painter : MonoBehaviour {
     private NativeArray<Vertex> _brushVerts;
     private ComputeBuffer _brushBuffer;
 
-    private NativeArray<float3> _targetPoints;
-    
-    
     private NativeArray<float2> _curves;
     private NativeArray<float> _widths;
     private NativeArray<float3> _colors;
@@ -60,8 +57,6 @@ public class Painter : MonoBehaviour {
         _camera.orthographic = true;
         _camera.targetTexture = _canvasTex;
         _camera.enabled = false;
-
-        _targetPoints = new NativeArray<float3>(8, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
         _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
@@ -88,7 +83,6 @@ public class Painter : MonoBehaviour {
     }
 
     private void OnDestroy() {
-        _targetPoints.Dispose();
 
         _curves.Dispose();
         _colors.Dispose();
@@ -98,16 +92,6 @@ public class Painter : MonoBehaviour {
         _brushBuffer.Dispose();
         _canvasTex.Release();
     }
-
-    // private static void GenerateTargetPoints(NativeArray<float2> outPoints) {
-    //     float2 p = new float3(1, 5, 0);
-
-    //     float2
-
-    //     for (int i = 0; i < outPoints.Length; i++) {
-            
-    //     }
-    // }
 
     public RenderTexture GetCanvas() {
         return _canvasTex;
@@ -126,9 +110,7 @@ public class Painter : MonoBehaviour {
         return (int)math.floor(math.exp2(l));
     }
 
-    
-
-    private JobHandle _handle;
+    public bool IHaveNewStuff;
 
     private void Update() {
         if (Time.frameCount % 5 == 0) {
@@ -144,16 +126,13 @@ public class Painter : MonoBehaviour {
             tessJob.widths = _widths;
             tessJob.colors = _colors;
             tessJob.brushVerts = _brushVerts;
-            _handle = tessJob.Schedule(NUM_CURVES, 1, h);
+            h = tessJob.Schedule(NUM_CURVES, 1, h);
 
-            JobHandle.ScheduleBatchedJobs();
+            h.Complete();
+            _brushBuffer.SetData(_brushVerts);
+            _camera.Render();
+            IHaveNewStuff = true;
         }
-    }
-
-    private void LateUpdate() {
-        _handle.Complete();
-        _brushBuffer.SetData(_brushVerts);
-        _camera.Render();
     }
 
     private void OnDrawGizmos() {

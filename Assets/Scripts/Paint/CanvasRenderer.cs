@@ -42,8 +42,13 @@ public class CanvasRenderer : MonoBehaviour {
             _clearCanvas = false;
         }
 
-        _blitAddLayerMaterial.SetTexture("_MainTex", source);
-        _blitAddLayerMaterial.SetTexture("_PaintTex", _painter.GetCanvas());
-        Graphics.Blit(source, destination, _blitAddLayerMaterial);
+        if (_painter.IHaveNewStuff) {
+            _blitAddLayerMaterial.SetTexture("_MainTex", source);
+            _blitAddLayerMaterial.SetTexture("_PaintTex", _painter.GetCanvas());
+            Graphics.Blit(source, destination, _blitAddLayerMaterial);
+            _painter.IHaveNewStuff = false;
+        } else {
+            Graphics.Blit(source, destination);
+        }
     }
 }
