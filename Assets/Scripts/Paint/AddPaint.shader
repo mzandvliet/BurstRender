@@ -28,6 +28,7 @@ Shader "Custom/AddPaint"
  
      float4 frag(v2f input) : SV_Target
      {
+         // Todo: Premultiply the alpha to avoid edge artifacts
          float4 canvas = tex2D(_MainTex, input.uv);
          float4 paint = tex2D(_PaintTex, input.uv);
          float4 result = float4(canvas.rgb * (1 - paint.a) + paint.rgb * paint.a, 1);

@@ -11,6 +11,8 @@ using System.Runtime.InteropServices;
 /* 
     Todo: 
 
+    RENDER GRANDFATHER'S PAINTINGS
+
     Iterative painting to canvas. Generate a few new strokes, add to existing canvas data. Render intermediate canvas to screen.
 
     Make it such that a spline path can be arbitary length. Possibly gets multi-stroke if longer than x.
