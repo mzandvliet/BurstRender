@@ -6,13 +6,13 @@ using Unity.Mathematics;
 using Rng = Unity.Mathematics.Random;
 
 // Borrowing from: https://www.youtube.com/watch?v=o9RK6O2kOKo
-public static class BDDCubic3d {
-    public static float3 EvaluateCasteljau(NativeArray<float3> c, in float t) {
+public static class BDCCubic3d {
+    public static float3 GetCasteljau(NativeArray<float3> c, in float t) {
         float3 bc = math.lerp(c[1], c[2], t);
         return math.lerp(math.lerp(math.lerp(c[0], c[1], t), bc, t), math.lerp(bc, math.lerp(c[2], c[3], t), t), t);
     }
 
-    public static float3 Evaluate(NativeArray<float3> c, in float t) {
+    public static float3 Get(NativeArray<float3> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -23,7 +23,7 @@ public static class BDDCubic3d {
             c[3] * (t2 * t);
     }
 
-    public static float3 EvaluateTangent(NativeArray<float3> c, in float t) {
+    public static float3 GetTangent(NativeArray<float3> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -35,19 +35,19 @@ public static class BDDCubic3d {
         );
     }
 
-    public static float3 EvaluateNormal(NativeArray<float3> c, in float t, in float3 up) {
-        float3 tangent = EvaluateTangent(c, t);
+    public static float3 GetNormal(NativeArray<float3> c, in float t, in float3 up) {
+        float3 tangent = GetTangent(c, t);
         float3 binorm = math.cross(up, tangent);
         return math.normalize(math.cross(tangent, binorm));
     }
 
-    public static float LengthEuclidApprox(NativeArray<float3> c, in int steps) {
+    public static float Length(NativeArray<float3> c, in int steps) {
         float dist = 0;
 
         float3 pPrev = c[0];
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)steps;
-            float3 p = Evaluate(c, t);
+            float3 p = Get(c, t);
             dist += math.length(p - pPrev);
             pPrev = p;
         }
@@ -55,13 +55,13 @@ public static class BDDCubic3d {
         return dist;
     }
 
-    public static float LengthEuclidApprox(NativeArray<float3> c, in int steps, in float t) {
+    public static float Length(NativeArray<float3> c, in int steps, in float t) {
         float dist = 0;
 
         float3 pPrev = c[0];
         for (int i = 1; i <= steps; i++) {
             float tNow = t * (i / (float)steps);
-            float3 p = Evaluate(c, tNow);
+            float3 p = Get(c, tNow);
             dist += math.length(p - pPrev);
             pPrev = p;
         }
@@ -69,7 +69,7 @@ public static class BDDCubic3d {
         return dist;
     }
 
-    public static float LengthEuclidApprox(NativeArray<float> distances, float t) {
+    public static float Length(NativeArray<float> distances, float t) {
         t = t * (float)(distances.Length - 1);
         int ti = (int)math.floor(t);
         if (ti >= distances.Length - 1) {
@@ -85,7 +85,7 @@ public static class BDDCubic3d {
         float3 pPrev = c[0];
         for (int i = 1; i < outDistances.Length; i++) {
             float t = i / (float)(outDistances.Length - 1);
-            float3 p = Evaluate(c, t);
+            float3 p = Get(c, t);
             dist += math.length(p - pPrev);
             outDistances[i] = dist;
             pPrev = p;

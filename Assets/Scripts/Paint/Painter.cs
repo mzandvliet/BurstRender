@@ -13,12 +13,8 @@ using System.Runtime.InteropServices;
 
     RENDER GRANDFATHER'S PAINTINGS
 
-    Iterative painting to canvas. Generate a few new strokes, add to existing canvas data. Render intermediate canvas to screen.
-
     Make it such that a spline path can be arbitary length. Possibly gets multi-stroke if longer than x.
-
     Then we can start generating some Gogh-likes by spiraling splines around attractors.
-
 
  */
 
@@ -37,6 +33,8 @@ public class Painter : MonoBehaviour {
 
     private NativeArray<Vertex> _brushVerts;
     private ComputeBuffer _brushBuffer;
+
+    private NativeArray<float3> _targetPoints;
     
     
     private NativeArray<float2> _curves;
@@ -63,6 +61,8 @@ public class Painter : MonoBehaviour {
         _camera.targetTexture = _canvasTex;
         _camera.enabled = false;
 
+        _targetPoints = new NativeArray<float3>(8, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+
         _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
 
@@ -87,6 +87,28 @@ public class Painter : MonoBehaviour {
         _rng = new Rng(1234);
     }
 
+    private void OnDestroy() {
+        _targetPoints.Dispose();
+
+        _curves.Dispose();
+        _colors.Dispose();
+        _widths.Dispose();
+
+        _brushVerts.Dispose();
+        _brushBuffer.Dispose();
+        _canvasTex.Release();
+    }
+
+    // private static void GenerateTargetPoints(NativeArray<float2> outPoints) {
+    //     float2 p = new float3(1, 5, 0);
+
+    //     float2
+
+    //     for (int i = 0; i < outPoints.Length; i++) {
+            
+    //     }
+    // }
+
     public RenderTexture GetCanvas() {
         return _canvasTex;
     }
@@ -104,15 +126,7 @@ public class Painter : MonoBehaviour {
         return (int)math.floor(math.exp2(l));
     }
 
-    private void OnDestroy() {
-        _curves.Dispose();
-        _colors.Dispose();
-        _widths.Dispose();
-
-        _brushVerts.Dispose();
-        _brushBuffer.Dispose();
-        _canvasTex.Release();
-    }
+    
 
     private JobHandle _handle;
 
@@ -124,15 +138,6 @@ public class Painter : MonoBehaviour {
             genJob.curves = _curves;
             genJob.colors = _colors;
             var h = genJob.Schedule();
-
-            for (int i = 1; i < 4; i++) {
-                var gennJob = new GenerateCurveOnCurveJob();
-                gennJob.level = i;
-                gennJob.rng = new Rng((uint)_rng.NextInt());
-                gennJob.curves = _curves;
-                gennJob.colors = _colors;
-                h = gennJob.Schedule(h);
-            }
 
             var tessJob = new TesslateCurvesJob();
             tessJob.curves = _curves;
@@ -150,16 +155,6 @@ public class Painter : MonoBehaviour {
         _brushBuffer.SetData(_brushVerts);
         _camera.Render();
     }
-
-    // void OnPreRender() {
-    //     _camera.targetTexture = _canvasTex;
-    // }
-
-    // void OnPostrender() {
-    //     Debug.Log("Onpost");
-    //     _camera.targetTexture = null;
-    //     Graphics.Blit(_canvasTex, null as RenderTexture);
-    // }
 
     private void OnDrawGizmos() {
         if (!Application.isPlaying) {
@@ -222,53 +217,11 @@ public class Painter : MonoBehaviour {
         }
     }
 
-    private struct GenerateCurveOnCurveJob : IJob {
-        public Rng rng;
-        public int level;
-
-        [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
-        [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
-
-        public void Execute() {
-            int firstCurveIdx = GetFirstCurveIndexForLevel(level);
-            int levelCurveCount = GetCurveCountForLevel(level);
-
-            for (int i = 0; i < levelCurveCount; i++) {
-                int parentIdx = (GetFirstCurveIndexForLevel(level - 1) + i % levelCurveCount/2) * CONTROLS_PER_CURVE;
-                float tParent = (1+i) / (float)(levelCurveCount+1);
-                
-                var p = BDCCubic2d.GetAt(curves, tParent, parentIdx);
-                var baseDir = BDCCubic2d.GetNormalAt(curves, tParent, parentIdx) * (2f / math.pow((float)(level+1), 2f));
-
-                float flip = i % 2 == 0 ? 1f : -1f;
-                baseDir *= flip;
-
-                float angle = Math.Pi * -rng.NextFloat(0.05f, 0.25f) * flip;
-                float2 rotor;
-                math.sincos(angle, out rotor.y, out rotor.x);
-
-                float2 dir = baseDir;
-                for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                    curves[firstCurveIdx * CONTROLS_PER_CURVE + i * CONTROLS_PER_CURVE + j] = p;
-                    p += dir;
-                    dir = Complex.Mul(rotor, dir);
-                }
-
-                colors[firstCurveIdx + i] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
-            }
-
-            
-        }
-    }
-
 
     /*
         Todo: 
         
-        The way I'm tesselating quickly gives rise to messed up uv flow due to quad shapes
         Strong enough curvature will make the outer edges overlap and flip triangles
-        If I add middle vertices in the right place, it might work better.
-        
         maaaay want to do this in a ComputeShader instead, we'll see
      */
 
