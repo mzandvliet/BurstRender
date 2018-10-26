@@ -64,9 +64,11 @@ public class Painter : MonoBehaviour {
         _brushMaterial.SetBuffer("verts", _brushBuffer);
 
         _commandBuffer = new CommandBuffer();
-        _commandBuffer.ClearRenderTarget(true, true, new Color(0, 0, 0, 0));
+        _commandBuffer.ClearRenderTarget(true, true, new Color(0, 0, 0, 1));
         _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, 0, MeshTopology.Triangles, _brushVerts.Length, 1);
         _camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
+
+        _camera.Render();
     }
 
     private void OnDestroy() {
@@ -108,12 +110,12 @@ public class Painter : MonoBehaviour {
         _brushBuffer.SetData(_brushVerts);
         _camera.Render();
 
-        _canvasRenderer.Add(_layerTex);
+        // _canvasRenderer.Add(_layerTex);
     }
 
-    // private void OnGUI() {
-    //     GUI.DrawTexture(new Rect(0,0,512,512), _layerTex);
-    // }
+    private void OnGUI() {
+        GUI.DrawTexture(new Rect(0,0,512,512), _layerTex);
+    }
 
     // private void OnDrawGizmos() {
     //     if (!Application.isPlaying) {

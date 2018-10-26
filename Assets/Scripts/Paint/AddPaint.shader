@@ -36,11 +36,10 @@ Shader "Custom/AddPaint"
         //  float4 result = float4(canvas.rgb * (1 - paint.a) + paint.rgb * paint.a, 1);
 
         // Premultiplied alpha
-        // float4 result = float4(paint.rgb * paint.a + (canvas.rgb * canvas.a * (1 - paint.a)), 1);
-
-        return canvas;
-
+        float4 result = float4(paint.rgb * paint.a + (canvas.rgb * canvas.a * (1 - paint.a)), 1);
          return result;
+
+        // return canvas;
      }
  
      ENDCG
