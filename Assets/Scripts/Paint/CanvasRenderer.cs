@@ -35,7 +35,6 @@ public class CanvasRenderer : MonoBehaviour {
 
     public void OnRenderImage(RenderTexture source, RenderTexture destination) {
         if (_clearCanvas) {
-            _blitAddLayerMaterial.SetTexture("_MainTex", source);
             Graphics.Blit(source, destination, _blitClearCanvasMaterial);
             _clearCanvas = false;
         }
