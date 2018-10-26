@@ -32,14 +32,6 @@ public class Modeler : MonoBehaviour {
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
 
         _rng = new Rng(1234);
-
-        var cj = new GenerateCurveJob();
-        cj.curveIdx = 0;
-        cj.rng = new Rng((uint)_rng.NextInt());
-        cj.curves = _curves;
-        cj.widths = _widths;
-        cj.colors = _colors;
-        cj.Schedule().Complete();
     }
 
     private void Start() {
@@ -62,9 +54,8 @@ public class Modeler : MonoBehaviour {
 
         if (Time.frameCount % 5 == 0) {
             var cj = new GenerateCurveJob();
-            cj.curveIdx = 0;
             cj.rng = new Rng((uint)_rng.NextInt());
-            cj.curves = _curves;
+            cj.controlPoints = _curves;
             cj.widths = _widths;
             cj.colors = _colors;
             h = cj.Schedule();
@@ -144,22 +135,27 @@ public class Modeler : MonoBehaviour {
 
     private struct GenerateCurveJob : IJob {
         public Rng rng;
-        public int curveIdx;
 
-        [NativeDisableParallelForRestriction] public NativeArray<float3> curves;
+        [NativeDisableParallelForRestriction] public NativeArray<float3> controlPoints;
         [NativeDisableParallelForRestriction] public NativeArray<float> widths;
         [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
 
         public void Execute() {
-            float3 p = new float3(rng.NextFloat(1f, 9f), rng.NextFloat(0.5f, 2f), rng.NextFloat(5, 10f));
-            for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                curves[curveIdx * CONTROLS_PER_CURVE + j] = p;
-                p += rng.NextFloat3Direction() * 1;
-                
-            }
+            int numPoints = controlPoints.Length / CONTROLS_PER_CURVE;
 
-            widths[curveIdx] = 0.5f;
-            colors[curveIdx] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
+            float3 o = new float3(5, 0, 2);
+
+            for (int i = 0; i < numPoints; i++) {
+                for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
+                    int idx = i * CONTROLS_PER_CURVE + j;
+
+                    var p = new float3(math.cos(idx / 4f), 0.1f * idx, math.sin(idx / 4f));
+                    controlPoints[idx] = p;
+                }
+
+                widths[i] = 0.2f;
+                colors[i] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
+            }
         }
     }
 
