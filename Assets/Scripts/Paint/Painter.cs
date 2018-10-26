@@ -8,16 +8,6 @@ using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
-/* 
-    Todo: 
-
-    RENDER GRANDFATHER'S PAINTINGS
-
-    Make it such that a spline path can be arbitary length. Possibly gets multi-stroke if longer than x.
-    Then we can start generating some Gogh-likes by spiraling splines around attractors.
-
- */
-
 public struct Vertex {
     public float3 vertex;
     public float3 normal; // Note: unused right now
@@ -63,6 +53,7 @@ public class Painter : MonoBehaviour {
     public void Init(int maxCurves) {
         _brushVerts = new NativeArray<Vertex>(maxCurves * CONTROLS_PER_CURVE * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
+        _brushMaterial.SetBuffer("verts", _brushBuffer);
 
         _commandBuffer = new CommandBuffer();
         // _commandBuffer.ClearRenderTarget(true, true, new Color(1, 1, 1, 1f));
@@ -99,7 +90,7 @@ public class Painter : MonoBehaviour {
 
     public void Draw(NativeArray<float2> curves, NativeArray<float> widths, NativeArray<float3> colors) {
         var tessJob = new TesslateCurvesJob();
-        tessJob.curves = curves;
+        tessJob.controls = curves;
         tessJob.widths = widths;
         tessJob.colors = colors;
         tessJob.brushVerts = _brushVerts;
@@ -107,14 +98,13 @@ public class Painter : MonoBehaviour {
 
         h.Complete();
         _brushBuffer.SetData(_brushVerts);
-        _brushMaterial.SetBuffer("verts", _brushBuffer);
         
         _camera.Render();
     }
 
-    private void LateUpdate() {
-        Graphics.Blit(_canvasTex, (RenderTexture)null);
-    }
+    // private void LateUpdate() {
+    //     Graphics.Blit(_canvasTex, (RenderTexture)null);
+    // }
 
     private void OnGUI() {
         GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height), _canvasTex);
@@ -164,7 +154,7 @@ public class Painter : MonoBehaviour {
      */
 
     private struct TesslateCurvesJob : IJobParallelFor {
-        [ReadOnly] public NativeArray<float2> curves;
+        [ReadOnly] public NativeArray<float2> controls;
         [ReadOnly] public NativeArray<float3> colors;
         [ReadOnly] public NativeArray<float> widths;
 
@@ -174,22 +164,19 @@ public class Painter : MonoBehaviour {
             int vertOffset = curveId * CURVE_TESSELATION * VERTS_PER_TESSEL;
             int firstControl = curveId * CONTROLS_PER_CURVE;
 
-            // var distances = new NativeArray<float>(8, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            // BDCCubic2d.CacheDistancesAt(curves, distances, firstControl);
-
             for (int i = 0; i < CURVE_TESSELATION; i++) {
                 float tA = i / (float)(CURVE_TESSELATION);
 
-                float3 posA = ToFloat3(BDCCubic2d.GetAt(curves, tA, firstControl));
-                float3 norA = ToFloat3(-BDCCubic2d.GetNormalAt(curves, tA, firstControl));
+                float3 posA = ToFloat3(BDCCubic2d.GetAt(controls, tA, firstControl));
+                float3 norA = ToFloat3(-BDCCubic2d.GetNormalAt(controls, tA, firstControl));
 
                 float tB = (i + 1) / (float)(CURVE_TESSELATION);
-                float3 posB = ToFloat3(BDCCubic2d.GetAt(curves, tB, firstControl));
-                float3 norB = ToFloat3(-BDCCubic2d.GetNormalAt(curves, tB, firstControl));
+                float3 posB = ToFloat3(BDCCubic2d.GetAt(controls, tB, firstControl));
+                float3 norB = ToFloat3(-BDCCubic2d.GetNormalAt(controls, tB, firstControl));
 
                 // todo: linearize the uvs using cached distances or lower degree Berstein Polys
-                float uvYA = tA;//BDCCubic2d.GetLength(distances, i / (float)(CURVE_TESSELATION)) / (distances[distances.Length - 1]);
-                float uvYB = tB;//BDCCubic2d.GetLength(distances, (i+1) / (float)(CURVE_TESSELATION)) / distances[distances.Length - 1];
+                float uvYA = tA;
+                float uvYB = tB;
 
                 float widthA = (0.4f + 0.6f * RampUpDown(uvYA)) * widths[curveId];
                 float widthB = (0.4f + 0.6f * RampUpDown(uvYB)) * widths[curveId];
