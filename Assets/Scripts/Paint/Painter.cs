@@ -26,9 +26,10 @@ public struct Vertex {
 };
 
 public class Painter : MonoBehaviour {
-    [SerializeField] private CanvasRenderer _canvasRenderer;
-
     [SerializeField] private Material _brushMaterial;
+
+    [SerializeField] private Material _blitClearCanvasMaterial;
+    [SerializeField] private Material _blitAddLayerMaterial;
 
     private Camera _camera;
     private CommandBuffer _commandBuffer;
@@ -38,47 +39,45 @@ public class Painter : MonoBehaviour {
 
     private Rng _rng;
 
-    private RenderTexture _layerTex;
+    private RenderTexture _canvasTex;
 
     private const int CONTROLS_PER_CURVE = 4;
     private const int CURVE_TESSELATION = 32;
     private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
 
     private void Awake() {
-        _layerTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24, RenderTextureFormat.ARGBFloat);
-        _layerTex.Create();
+        _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24);
+        _canvasTex.Create();
 
         _camera = gameObject.GetComponent<Camera>();
         _camera.orthographicSize = 4f;
         _camera.orthographic = true;
-        _camera.targetTexture = _layerTex;
+        _camera.targetTexture = _canvasTex;
         _camera.enabled = false;
-        _camera.RemoveAllCommandBuffers();
 
         _rng = new Rng(1234);
+
+        Clear();
     }
 
     public void Init(int maxCurves) {
         _brushVerts = new NativeArray<Vertex>(maxCurves * CONTROLS_PER_CURVE * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
-        _brushMaterial.SetBuffer("verts", _brushBuffer);
 
         _commandBuffer = new CommandBuffer();
-        _commandBuffer.ClearRenderTarget(true, true, new Color(0, 0, 0, 1));
+        // _commandBuffer.ClearRenderTarget(true, true, new Color(1, 1, 1, 1f));
         _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, 0, MeshTopology.Triangles, _brushVerts.Length, 1);
         _camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
-
-        _camera.Render();
     }
 
     private void OnDestroy() {
         _brushVerts.Dispose();
         _brushBuffer.Dispose();
-        _layerTex.Release();
+        _canvasTex.Release();
     }
 
     public RenderTexture GetLayer() {
-        return _layerTex;
+        return _canvasTex;
     }
 
     private static int GetLevel(int i) {
@@ -95,7 +94,7 @@ public class Painter : MonoBehaviour {
     }
 
     public void Clear() {
-        _canvasRenderer.Clear();
+        Graphics.Blit(_canvasTex, _canvasTex, _blitClearCanvasMaterial);
     }
 
     public void Draw(NativeArray<float2> curves, NativeArray<float> widths, NativeArray<float3> colors) {
@@ -108,13 +107,17 @@ public class Painter : MonoBehaviour {
 
         h.Complete();
         _brushBuffer.SetData(_brushVerts);
+        _brushMaterial.SetBuffer("verts", _brushBuffer);
+        
         _camera.Render();
+    }
 
-        // _canvasRenderer.Add(_layerTex);
+    private void LateUpdate() {
+        Graphics.Blit(_canvasTex, (RenderTexture)null);
     }
 
     private void OnGUI() {
-        GUI.DrawTexture(new Rect(0,0,512,512), _layerTex);
+        GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height), _canvasTex);
     }
 
     // private void OnDrawGizmos() {
