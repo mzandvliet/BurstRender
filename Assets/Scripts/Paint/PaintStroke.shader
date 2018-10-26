@@ -7,7 +7,7 @@
 	Tags{ "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
 
 	ZWrite Off
-	//BlendOp Add Max // Add , LogicalSet is funky
+	//BlendOp Add// Max // Max Add , LogicalSet is funky
 	Blend SrcAlpha OneMinusSrcAlpha
 
 	Pass{
@@ -40,10 +40,11 @@
 		v2f vertex_shader(uint id : SV_VertexID, uint inst : SV_InstanceID)
 		{
 			v2f o;
-			float4 vertex_position = float4(verts[id].vertex, 1.0f);
-			float4 vertex_normal = float4(verts[id].normal, 1.0f);
+			Vertex v = verts[id];
+			float4 vertex_position = float4(v.vertex, 1.0f);
+			float4 vertex_normal = float4(v.normal, 1.0f);
 			o.pos = mul(UNITY_MATRIX_VP, vertex_position);
-			o.uv = TRANSFORM_TEX(verts[id].uv, _MainTex);
+			o.uv = TRANSFORM_TEX(v.uv, _MainTex);
 
 			// float3 normalDirection = normalize(vertex_normal.xyz);
 			// float4 AmbientLight = UNITY_LIGHTMODEL_AMBIENT;
@@ -51,7 +52,7 @@
 			// float4 DiffuseLight = saturate(dot(LightDirection, normalDirection))*_LightColor0;
 			// o.col = float4(AmbientLight + DiffuseLight);
 
-			o.col = float4(verts[id].color, 1);
+			o.col = float4(v.color, 1);
 			return o;
 		}
 

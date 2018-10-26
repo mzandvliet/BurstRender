@@ -143,7 +143,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5fff7e07cfcff8e4bb207ddf029b07d2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _painter: {fileID: 1509488728}
   _blitClearCanvasMaterial: {fileID: 2100000, guid: d46f3ab8a5067bb419f22f4b499cef52,
     type: 2}
   _blitAddLayerMaterial: {fileID: 2100000, guid: b3f06984caa3cd847a0654ff3e4074a7,
@@ -156,7 +155,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 167200079}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 4.8853235, y: 3.738595, z: -1.7925367}
+  m_LocalPosition: {x: 4, y: 4, z: -10}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -171,8 +170,8 @@ Camera:
   m_GameObject: {fileID: 167200079}
   m_Enabled: 1
   serializedVersion: 2
-  m_ClearFlags: 2
-  m_BackGroundColor: {r: 1, g: 0, b: 0.7803583, a: 1}
+  m_ClearFlags: 4
+  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 1}
   m_projectionMatrixMode: 1
   m_SensorSize: {x: 36, y: 24}
   m_LensShift: {x: 0, y: 0}
@@ -189,10 +188,10 @@ Camera:
   field of view: 60
   orthographic: 1
   orthographic size: 5
-  m_Depth: 0
+  m_Depth: 1
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 0
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
@@ -255,6 +254,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 78a3aa1bf4ab27e4b9529c0bb9361314, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _canvasRenderer: {fileID: 167200080}
   _brushMaterial: {fileID: 2100000, guid: 6bc54445a0e62374896af6f942e0289f, type: 2}
 --- !u!4 &1509488729
 Transform:
@@ -277,10 +277,10 @@ Camera:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1509488727}
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 2
-  m_ClearFlags: 2
-  m_BackGroundColor: {r: 1, g: 0, b: 0.71488476, a: 1}
+  m_ClearFlags: 4
+  m_BackGroundColor: {r: 1, g: 0, b: 0.71372557, a: 1}
   m_projectionMatrixMode: 1
   m_SensorSize: {x: 36, y: 24}
   m_LensShift: {x: 0, y: 0}
@@ -297,7 +297,7 @@ Camera:
   field of view: 60
   orthographic: 1
   orthographic size: 5
-  m_Depth: -1
+  m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
     m_Bits: 4294967295

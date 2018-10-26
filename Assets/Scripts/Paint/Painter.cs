@@ -26,10 +26,12 @@ public struct Vertex {
 };
 
 public class Painter : MonoBehaviour {
-    private Camera _camera;
-    private CommandBuffer _commandBuffer;
+    [SerializeField] private CanvasRenderer _canvasRenderer;
 
     [SerializeField] private Material _brushMaterial;
+
+    private Camera _camera;
+    private CommandBuffer _commandBuffer;
 
     private NativeArray<Vertex> _brushVerts;
     private ComputeBuffer _brushBuffer;
@@ -39,24 +41,23 @@ public class Painter : MonoBehaviour {
     private NativeArray<float3> _colors;
     private Rng _rng;
 
-    private RenderTexture _canvasTex;
+    private RenderTexture _layerTex;
 
-    private const int NUM_CURVES = 15;
+    private const int NUM_CURVES = 1;
     private const int CONTROLS_PER_CURVE = 4;
     private const int CURVE_TESSELATION = 32;
     private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
 
     private void Awake() {
-        _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24, RenderTextureFormat.ARGB32);
-        _canvasTex.Create();
+        _layerTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24, RenderTextureFormat.ARGBFloat);
+        _layerTex.Create();
 
         _camera = gameObject.GetComponent<Camera>();
         _camera.orthographicSize = 4f;
-        _camera.clearFlags = CameraClearFlags.SolidColor;
-        _camera.backgroundColor = new Color(0,0,0,0);
         _camera.orthographic = true;
-        _camera.targetTexture = _canvasTex;
+        _camera.targetTexture = _layerTex;
         _camera.enabled = false;
+        _camera.RemoveAllCommandBuffers();
 
         _brushVerts = new NativeArray<Vertex>(NUM_CURVES * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
@@ -73,28 +74,21 @@ public class Painter : MonoBehaviour {
         _widths = new NativeArray<float>(NUM_CURVES, Allocator.Persistent);
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
 
-        for (int i = 0; i < _widths.Length; i++) {
-            int level = GetLevel(i);
-            Debug.Log(i + ", " + level + ", " + GetFirstCurveIndexForLevel(level) + ", " + GetCurveCountForLevel(level));
-            _widths[i] = 0.5f / (1+level);
-        }
-
         _rng = new Rng(1234);
     }
 
     private void OnDestroy() {
-
         _curves.Dispose();
         _colors.Dispose();
         _widths.Dispose();
 
         _brushVerts.Dispose();
         _brushBuffer.Dispose();
-        _canvasTex.Release();
+        _layerTex.Release();
     }
 
-    public RenderTexture GetCanvas() {
-        return _canvasTex;
+    public RenderTexture GetLayer() {
+        return _layerTex;
     }
 
     private static int GetLevel(int i) {
@@ -110,14 +104,19 @@ public class Painter : MonoBehaviour {
         return (int)math.floor(math.exp2(l));
     }
 
-    public bool IHaveNewStuff;
+    private JobHandle _handle;
 
     private void Update() {
+        if (Time.frameCount % 60 == 0) {
+            _canvasRenderer.Clear();
+        }
+
         if (Time.frameCount % 5 == 0) {
             var genJob = new GenerateFirstCurveJob();
             genJob.curveIdx = 0;
             genJob.rng = new Rng((uint)_rng.NextInt());
             genJob.curves = _curves;
+            genJob.widths = _widths;
             genJob.colors = _colors;
             var h = genJob.Schedule();
 
@@ -128,12 +127,23 @@ public class Painter : MonoBehaviour {
             tessJob.brushVerts = _brushVerts;
             h = tessJob.Schedule(NUM_CURVES, 1, h);
 
-            h.Complete();
+            _handle = h;
+
+            _handle.Complete();
             _brushBuffer.SetData(_brushVerts);
             _camera.Render();
-            IHaveNewStuff = true;
+
+            _canvasRenderer.Add(_layerTex);
         }
     }
+
+    private void LateUpdate() {
+        
+    }
+
+    // private void OnGUI() {
+    //     GUI.DrawTexture(new Rect(0,0,512,512), _layerTex);
+    // }
 
     private void OnDrawGizmos() {
         if (!Application.isPlaying) {
@@ -177,19 +187,15 @@ public class Painter : MonoBehaviour {
         public int curveIdx;
 
         [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
+        [NativeDisableParallelForRestriction] public NativeArray<float> widths;
         [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
 
         public void Execute() {
-            float2 baseDir = new float2(0, 2);
-            float2 rotor;
-            math.sincos(Math.Pi * -rng.NextFloat(-0.15f, 0.25f), out rotor.y, out rotor.x);
-            
             float2 p = new float2(rng.NextFloat(1f, 9f), rng.NextFloat(0.5f, 2f));
-            float2 dir = baseDir;
             for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                 curves[curveIdx * CONTROLS_PER_CURVE + j] = p;
-                p += dir;
-                dir = Complex.Mul(rotor, dir);
+                p += rng.NextFloat2Direction() * 2;
+                widths[curveIdx] = 1;
             }
 
             colors[curveIdx] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
@@ -205,9 +211,10 @@ public class Painter : MonoBehaviour {
      */
 
     private struct TesslateCurvesJob : IJobParallelFor {
-        [NativeDisableParallelForRestriction] public NativeArray<float2> curves;
-        public NativeArray<float3> colors;
-        public NativeArray<float> widths;
+        [ReadOnly] public NativeArray<float2> curves;
+        [ReadOnly] public NativeArray<float3> colors;
+        [ReadOnly] public NativeArray<float> widths;
+
         [NativeDisableParallelForRestriction] public NativeArray<Vertex> brushVerts;
 
         public void Execute(int curveId) {

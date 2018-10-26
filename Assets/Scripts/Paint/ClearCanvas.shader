@@ -2,7 +2,6 @@ Shader "Custom/ClearCanvas"
 {
      Properties
      {
-          _MainTex ("", any) = "" {}
      }
  
      CGINCLUDE
@@ -13,8 +12,6 @@ Shader "Custom/ClearCanvas"
           float4 pos : SV_POSITION;
           float2 uv : TEXCOORD0;
      };
- 
-     sampler2D _MainTex;
  
      v2f vert( appdata_img v )
      {

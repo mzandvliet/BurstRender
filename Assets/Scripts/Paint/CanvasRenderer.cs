@@ -9,45 +9,43 @@ using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
 public class CanvasRenderer : MonoBehaviour {
-    [SerializeField] private Painter _painter;
     [SerializeField] private Material _blitClearCanvasMaterial;
     [SerializeField] private Material _blitAddLayerMaterial;
     
-
     private Camera _camera;
-    private CommandBuffer _commandBuffer;
 
     private bool _clearCanvas;
+    private RenderTexture _newPaintLayer;
 
     private void Awake() {
+        _clearCanvas = true;
         _camera = gameObject.GetComponent<Camera>();
+    }
 
-        _camera.orthographicSize = 4f;
-        _camera.clearFlags = CameraClearFlags.Nothing;
-        _camera.orthographic = true;
+    private void OnDestroy() {
+    }
 
+    public void Clear() {
         _clearCanvas = true;
     }
 
-    private void Update() {
-        if (Time.frameCount % 60 == 0) {
-            _clearCanvas = true;
-        }
+    public void Add(RenderTexture paintLayer) {
+        _newPaintLayer = paintLayer;
     }
 
-    void OnRenderImage(RenderTexture source, RenderTexture destination) {
+    public void OnRenderImage(RenderTexture source, RenderTexture destination) {
         if (_clearCanvas) {
-            _blitClearCanvasMaterial.SetTexture("_MainTex", source);
-            Graphics.Blit(source, source, _blitClearCanvasMaterial);
+            _blitAddLayerMaterial.SetTexture("_MainTex", source);
+            Graphics.Blit(source, destination, _blitClearCanvasMaterial);
             _clearCanvas = false;
         }
-
-        if (_painter.IHaveNewStuff) {
+        else if (_newPaintLayer != null) {
             _blitAddLayerMaterial.SetTexture("_MainTex", source);
-            _blitAddLayerMaterial.SetTexture("_PaintTex", _painter.GetCanvas());
+            _blitAddLayerMaterial.SetTexture("_PaintTex", _newPaintLayer);
             Graphics.Blit(source, destination, _blitAddLayerMaterial);
-            _painter.IHaveNewStuff = false;
-        } else {
+            _newPaintLayer = null;
+        }
+        else {
             Graphics.Blit(source, destination);
         }
     }
