@@ -8,7 +8,7 @@
 
 	ZWrite Off
 	// BlendOp Add// Max // Max Add , LogicalSet is funky
-	Blend SrcAlpha OneMinusSrcAlpha
+	// Blend SrcAlpha OneMinusSrcAlpha
 
 	Pass{
 		CGPROGRAM

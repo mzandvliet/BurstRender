@@ -35,8 +35,26 @@ public static class BDCCubic3d {
         );
     }
 
+    public static float3 GetTangentAt(NativeArray<float3> c, in float t, int idx) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        return math.normalize(
+            c[idx + 0] * (-omt2) +
+            c[idx + 1] * (3f * omt2 - 2f * omt) +
+            c[idx + 2] * (-3f * t2 + 2f * t) +
+            c[idx + 3] * (t2)
+        );
+    }
+
     public static float3 GetNormal(NativeArray<float3> c, in float t, in float3 up) {
         float3 tangent = GetTangent(c, t);
+        float3 binorm = math.cross(up, tangent);
+        return math.normalize(math.cross(tangent, binorm));
+    }
+
+    public static float3 GetNormalAt(NativeArray<float3> c, in float t, in float3 up, int idx) {
+        float3 tangent = GetTangentAt(c, t, idx);
         float3 binorm = math.cross(up, tangent);
         return math.normalize(math.cross(tangent, binorm));
     }

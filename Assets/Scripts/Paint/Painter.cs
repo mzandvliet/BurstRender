@@ -56,8 +56,7 @@ public class Painter : MonoBehaviour {
         _brushMaterial.SetBuffer("verts", _brushBuffer);
 
         _commandBuffer = new CommandBuffer();
-        // _commandBuffer.ClearRenderTarget(true, true, new Color(1, 1, 1, 1f));
-        _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, 0, MeshTopology.Triangles, _brushVerts.Length, 1);
+        _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, -1, MeshTopology.Triangles, _brushVerts.Length, 1);
         _camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
     }
 
@@ -65,23 +64,6 @@ public class Painter : MonoBehaviour {
         _brushVerts.Dispose();
         _brushBuffer.Dispose();
         _canvasTex.Release();
-    }
-
-    public RenderTexture GetLayer() {
-        return _canvasTex;
-    }
-
-    private static int GetLevel(int i) {
-        return (int)math.floor(math.log2(1 + i));
-
-    }
-
-    private static int GetFirstCurveIndexForLevel(int l) {
-        return (int)math.floor(math.exp2(l)) - 1;
-    }
-
-    private static int GetCurveCountForLevel(int l) {
-        return (int)math.floor(math.exp2(l));
     }
 
     public void Clear() {
@@ -102,45 +84,9 @@ public class Painter : MonoBehaviour {
         _camera.Render();
     }
 
-    // private void LateUpdate() {
-    //     Graphics.Blit(_canvasTex, (RenderTexture)null);
-    // }
-
     private void OnGUI() {
         GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height), _canvasTex);
     }
-
-    // private void OnDrawGizmos() {
-    //     if (!Application.isPlaying) {
-    //         return;
-    //     }
-
-    //     Gizmos.color = Color.blue;
-    //     for (int i = 0; i < _curves.Length; i++) {
-    //         Gizmos.DrawSphere(Math.ToVec3(_curves[i]), 0.05f);
-    //     }
-
-    //     Gizmos.color = Color.white;
-    //     float2 pPrev = BDCCubic2d.Get(_curves, 0f);
-    //     Gizmos.DrawSphere(Math.ToVec3(pPrev), 0.01f);
-    //     int steps = 16;
-    //     for (int i = 1; i <= steps; i++) {
-    //         float t = i / (float)(steps);
-    //         float2 p = BDCCubic2d.Get(_curves, t);
-    //         float2 tg = BDCCubic2d.GetTangent(_curves, t);
-    //         float2 n = BDCCubic2d.GetNormal(_curves, t);
-    //         Gizmos.DrawLine(Math.ToVec3(pPrev), Math.ToVec3(p));
-    //         Gizmos.DrawSphere(Math.ToVec3(p), 0.01f);
-
-    //         Gizmos.color = Color.blue;
-    //         Gizmos.DrawRay(Math.ToVec3(p), Math.ToVec3(n * 0.3f));
-    //         Gizmos.DrawRay(Math.ToVec3(p), -Math.ToVec3(n * 0.3f));
-    //         Gizmos.color = Color.green;
-    //         Gizmos.DrawRay(Math.ToVec3(p), Math.ToVec3(tg));
-            
-    //         pPrev = p;
-    //     }
-    // }
 
     private static float3 ToFloat3(in float2 v) {
         return new float3(v.x, v.y, 0f);
@@ -178,8 +124,8 @@ public class Painter : MonoBehaviour {
                 float uvYA = tA;
                 float uvYB = tB;
 
-                float widthA = (0.4f + 0.6f * RampUpDown(uvYA)) * widths[curveId];
-                float widthB = (0.4f + 0.6f * RampUpDown(uvYB)) * widths[curveId];
+                float widthA = widths[curveId];
+                float widthB = widths[curveId];
 
                 norA *= widthA;
                 norB *= widthB;
@@ -255,12 +201,6 @@ public class Painter : MonoBehaviour {
                 v.uv = new float2(0.5f, uvYA * uvTiling);
                 v.color = colors[curveId];
                 brushVerts[quadStartIdx + 11] = v;
-            }
-
-            // distances.Dispose();
-
-            float RampUpDown(in float i) {
-                return math.pow(i <= 0.5f ? i * 2f : 2f - (i * 2f), 0.5f);
             }
         }
     }

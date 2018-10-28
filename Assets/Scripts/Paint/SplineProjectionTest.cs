@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 // Just project the control points and you're done.
 
 public class SplineProjectionTest : MonoBehaviour {
+    [SerializeField] private Camera _camera;
     private NativeArray<float3> _curve3d;
     private NativeArray<float2> _curve2d;
     private Rng _rng;
@@ -25,7 +26,6 @@ public class SplineProjectionTest : MonoBehaviour {
         _rng = new Rng(1234);
 
         Generate3dCurve();
-        ProjectCurve();
     }
 
     private void Generate3dCurve() {
@@ -36,10 +36,21 @@ public class SplineProjectionTest : MonoBehaviour {
         }
     }
 
+    // private void ProjectCurve() {
+    //     for (int i = 0; i < _curve3d.Length; i++) {
+    //         float3 p = _curve3d[i];
+    //         p = _camera.WorldToViewportPoint(_curve3d[i]);
+    //         _curve2d[i] = new float2(p.x, p.y) * 10f;
+    //     }
+    // }
+
     private void ProjectCurve() {
+        var worldToCam = (float4x4)_camera.worldToCameraMatrix;
+        var projection = (float4x4)_camera.projectionMatrix;
         for (int i = 0; i < _curve3d.Length; i++) {
-            float3 p = _curve3d[i];
-            _curve2d[i] = new float2(p.x, p.y);
+            float4 p = new float4(_curve3d[i], 1);
+            p = math.mul(math.mul(projection, worldToCam), p);
+            _curve2d[i] = new float2(p.x, p.y) / p.w * 10f;
         }
     }
 
@@ -50,6 +61,9 @@ public class SplineProjectionTest : MonoBehaviour {
 
     private JobHandle _handle;
 
+    private void Update() {
+        ProjectCurve();
+    }
 
     private void OnDrawGizmos() {
         if (!Application.isPlaying) {

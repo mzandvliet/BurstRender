@@ -15,6 +15,7 @@ using System.Runtime.InteropServices;
     - something that should be directly in the middle of the screen is not
     - projection still seems isometric
 
+    Culling
 
     We might specify color and with only at the begin and end of a stroke.
 
@@ -41,7 +42,7 @@ public class Modeler : MonoBehaviour {
 
     private Rng _rng;
 
-    private const int NUM_CURVES = 64;
+    private const int NUM_CURVES = 1;
     private const int CONTROLS_PER_CURVE = 4;
 
     private void Awake() {
@@ -80,6 +81,7 @@ public class Modeler : MonoBehaviour {
 
         if (Time.frameCount % 10 == 0) {
             var cj = new GenerateSpiralJob();
+            cj.time = Time.frameCount * 0.01f;
             cj.rng = new Rng((uint)_rng.NextInt());
             cj.controlPoints = _controls;
             cj.widths = _widths;
@@ -87,7 +89,8 @@ public class Modeler : MonoBehaviour {
             h = cj.Schedule();
 
             var pj = new ProjectCurvesJob();
-            pj.projectionMatrix = _camera.projectionMatrix * _camera.worldToCameraMatrix;
+            pj.worldToCamMatrix = _camera.worldToCameraMatrix;
+            pj.projectionMatrix = _camera.projectionMatrix;
             pj.controlPoints = _controls;
             pj.widths = _widths;
             pj.projectedControls = _projectedControls;
@@ -96,7 +99,25 @@ public class Modeler : MonoBehaviour {
 
             h.Complete();
 
+            // Project();
+
             _painter.Draw(_projectedControls, _projectedWidths, _colors);
+        }
+    }
+
+    public void Project() {
+        int numCurves = _controls.Length / CONTROLS_PER_CURVE;
+        for (int i = 0; i < numCurves; i++) {
+            float avgZ = 0;
+            for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
+                int idx = i * CONTROLS_PER_CURVE + j;
+                float3 p = _camera.WorldToViewportPoint(_controls[idx]);
+                _projectedControls[idx] = new float2(p.x, p.y) / p.z;
+
+                avgZ += p.z;
+            }
+            avgZ *= 0.25f;
+            _projectedWidths[i] = _widths[i] / avgZ;
         }
     }
 
@@ -105,8 +126,8 @@ public class Modeler : MonoBehaviour {
             return;
         }
         
-        // Draw3dSplines();
-        // DrawProjectedSplines();
+        Draw3dSplines();
+        DrawProjectedSplines();
     }
 
     private void Draw3dSplines() {
@@ -165,6 +186,7 @@ public class Modeler : MonoBehaviour {
         [NativeDisableParallelForRestriction] public NativeArray<float3> controlPoints;
         [NativeDisableParallelForRestriction] public NativeArray<float> widths;
         [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
+        public float time;
 
         public void Execute() {
             int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
@@ -175,17 +197,19 @@ public class Modeler : MonoBehaviour {
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
-                    var p = o + new float3(math.cos(idx / 4f) * 4f, 0.01f * idx, math.sin(idx / 4f) * 4f);
+                    var p = o + new float3(math.cos(time + idx / 4f) * 4f, 0.0f * idx, math.sin(time + idx / 4f) * 4f);
+                    // var p = new float3(0,idx * 0.1f, 1f);
                     controlPoints[idx] = p;
                 }
 
                 widths[i] = 1.5f;
-                colors[i] = new float3(rng.NextFloat(0.3f, 0.5f), rng.NextFloat(0.6f, 0.8f), rng.NextFloat(0.3f, 0.6f));
+                colors[i] = new float3(0.5f) + 0.5f * new float3(i * 0.07f % 1f, i * 0.063f % 1f, i * 0.047f % 1f);
             }
         }
     }
 
     private struct ProjectCurvesJob : IJob {
+        [ReadOnly] public float4x4 worldToCamMatrix;
         [ReadOnly] public float4x4 projectionMatrix;
 
         [ReadOnly] public NativeArray<float3> controlPoints;
@@ -198,18 +222,47 @@ public class Modeler : MonoBehaviour {
             int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
             for (int i = 0; i < numCurves; i++) {
                 float avgZ = 0;
+                bool cull = false;
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
                     float4 p = new float4(controlPoints[idx].x, controlPoints[idx].y, controlPoints[idx].z, 1);
-                    p = math.mul(projectionMatrix, p);
+                    p = WorldToScreenPoint(p, projectionMatrix, worldToCamMatrix);
                     projectedControls[idx] = new float2(p.x, p.y);
 
                     avgZ += p.z;
+
+                    if (BDCCubic3d.GetNormalAt(controlPoints, j / (float)(CONTROLS_PER_CURVE-1), new float3(0,1,0), i).z > 0f) {
+                        cull = true;
+                    }
                 }
                 avgZ *= 0.25f;
+                
+                if (cull) {
+                    projectedWidths[i] = 0;
+                } else {
+                    projectedWidths[i] = widths[i] / avgZ;
+                }
+                
+            }
+        }
 
-                projectedWidths[i] = widths[i] / avgZ;
+        private static float4 WorldToScreenPoint(float4 wp, float4x4 projectionMatrix, float4x4 worldToCameraMatrix) {
+            // calculate view-projection matrix
+            float4x4 mat = math.mul(projectionMatrix, worldToCameraMatrix);
+
+            // multiply world point by VP matrix
+            Vector4 temp = math.mul(mat, wp);
+
+            if (temp.w == 0f) {
+                // point is exactly on camera focus point, screen point is undefined
+                // unity handles this by returning 0,0,0
+                return new float4();
+            } else {
+                // convert x and y from clip space to window coordinates
+                temp.x = (temp.x / temp.w);
+                temp.y = (temp.y / temp.w );
+                return new float4(temp.x, temp.y, wp.z, 1);
             }
         }
     }
