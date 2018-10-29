@@ -36,8 +36,8 @@ public class Painter : MonoBehaviour {
     private RenderTexture _canvasTex;
 
     private const int CONTROLS_PER_CURVE = 4;
-    private const int VERTS_VERTICAL = 16;
-    private const int VERTS_HORIZONTAL = 3; 
+    private const int TESSELATE_VERTICAL = 4;
+    private const int TESSELATE_HORIZONTAL = 3; 
 
     private void Awake() {
         _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24);
@@ -62,8 +62,8 @@ public class Painter : MonoBehaviour {
     }
 
     public void Init(int maxCurves) {
-        int numVerts = maxCurves * VERTS_VERTICAL * VERTS_HORIZONTAL;
-        int numIndices = maxCurves * (VERTS_VERTICAL-1) * (VERTS_HORIZONTAL-1) * 2 * 3;
+        int numVerts = maxCurves * TESSELATE_VERTICAL * TESSELATE_HORIZONTAL;
+        int numIndices = maxCurves * (TESSELATE_VERTICAL-1) * (TESSELATE_HORIZONTAL-1) * 6;
 
         Debug.Log(numVerts + ", " + numIndices);
 
@@ -121,6 +121,7 @@ public class Painter : MonoBehaviour {
         _mesh.normals = _normalsMan;
         _mesh.triangles = _indicesMan;
         _mesh.uv = _uvsMan;
+        _mesh.RecalculateBounds();
         _mesh.UploadMeshData(false);
     }
 
@@ -152,20 +153,18 @@ public class Painter : MonoBehaviour {
 
         public void Execute() {
             int numCurves = controls.Length / 4;
-            for (int curveId = 0; curveId < numCurves; curveId++) {
-                int firstControl = curveId * CONTROLS_PER_CURVE;
+            for (int c = 0; c < numCurves; c++) {
+                for (int i = 0; i < TESSELATE_VERTICAL; i++) {
+                    int idx = c * TESSELATE_VERTICAL + i;
+                    float t = i / (float)(TESSELATE_VERTICAL-1);
 
-                for (int i = 0; i < VERTS_VERTICAL; i++) {
-                    int idx = curveId * VERTS_VERTICAL + i;
-                    float t = i / (float)(VERTS_VERTICAL);
-
-                    float3 pos = ToFloat3(BDCCubic2d.GetAt(controls, t, firstControl));
-                    float3 edge = ToFloat3(-BDCCubic2d.GetNormalAt(controls, t, firstControl));
+                    float3 pos = ToFloat3(BDCCubic2d.GetAt(controls, t, c));
+                    float3 edge = ToFloat3(-BDCCubic2d.GetNormalAt(controls, t, c));
                     
-                    float width = widths[curveId];
+                    float width = widths[c];
                     edge *= width;
 
-                    float uvY = i / (float)(VERTS_VERTICAL - 1);
+                    float uvY = i / (float)(TESSELATE_VERTICAL - 1);
 
                     var normal = new float3(0, 0, -1);
 
@@ -185,24 +184,27 @@ public class Painter : MonoBehaviour {
                 }
             }
 
-            for (int i = 0; i < numCurves * (VERTS_VERTICAL-1); i++) {
-                int idx = i * 12;
+            for (int c = 0; c < numCurves; c++) {
+                for (int i = 0; i < TESSELATE_VERTICAL-1; i++) {
+                    int baseIdx = c * (TESSELATE_VERTICAL-1) * 12 + i * 12;
+                    int vertIdx = c * TESSELATE_VERTICAL + i;
 
-                indices[idx + 0 ] = (i + 0) * 3 + 0;
-                indices[idx + 1 ] = (i + 1) * 3 + 0;
-                indices[idx + 2 ] = (i + 1) * 3 + 1;
+                    indices[baseIdx + 0] = (vertIdx + 0) * 3 + 0;
+                    indices[baseIdx + 1] = (vertIdx + 1) * 3 + 0;
+                    indices[baseIdx + 2] = (vertIdx + 1) * 3 + 1;
 
-                indices[idx + 3 ] = (i + 0) * 3 + 0;
-                indices[idx + 4 ] = (i + 1) * 3 + 1;
-                indices[idx + 5 ] = (i + 0) * 3 + 1;
+                    indices[baseIdx + 3] = (vertIdx + 0) * 3 + 0;
+                    indices[baseIdx + 4] = (vertIdx + 1) * 3 + 1;
+                    indices[baseIdx + 5] = (vertIdx + 0) * 3 + 1;
 
-                indices[idx + 6 ] = (i + 0) * 3 + 1;
-                indices[idx + 7 ] = (i + 1) * 3 + 1;
-                indices[idx + 8 ] = (i + 1) * 3 + 2;
+                    indices[baseIdx + 6] = (vertIdx + 0) * 3 + 1;
+                    indices[baseIdx + 7] = (vertIdx + 1) * 3 + 1;
+                    indices[baseIdx + 8] = (vertIdx + 1) * 3 + 2;
 
-                indices[idx + 9 ] = (i + 0) * 3 + 1;
-                indices[idx + 10] = (i + 1) * 3 + 2;
-                indices[idx + 11] = (i + 0) * 3 + 2;
+                    indices[baseIdx + 9] = (vertIdx + 0) * 3 + 1;
+                    indices[baseIdx + 10] = (vertIdx + 1) * 3 + 2;
+                    indices[baseIdx + 11] = (vertIdx + 0) * 3 + 2;
+                }
             }
         }
     }

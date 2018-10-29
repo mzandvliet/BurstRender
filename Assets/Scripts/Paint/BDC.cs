@@ -23,6 +23,18 @@ public static class BDCCubic3d {
             c[3] * (t2 * t);
     }
 
+    public static float3 GetAt(NativeArray<float3> c, in float t, int idx) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        idx *= 4;
+        return
+            c[idx + 0] * (omt2 * omt) +
+            c[idx + 1] * (3f * omt2 * t) +
+            c[idx + 2] * (3f * omt * t2) +
+            c[idx + 3] * (t2 * t);
+    }
+
     public static float3 GetTangent(NativeArray<float3> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
@@ -39,6 +51,7 @@ public static class BDCCubic3d {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
+        idx *= 4;
         return math.normalize(
             c[idx + 0] * (-omt2) +
             c[idx + 1] * (3f * omt2 - 2f * omt) +
@@ -128,10 +141,11 @@ public static class BDCCubic2d {
             c[3] * (t2 * t);
     }
 
-    public static float2 GetAt(NativeArray<float2> c, in float t, in int idx) {
+    public static float2 GetAt(NativeArray<float2> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
+        idx *= 4;
         return
             c[idx + 0] * (omt2 * omt) +
             c[idx + 1] * (3f * omt2 * t) +
@@ -151,10 +165,11 @@ public static class BDCCubic2d {
         );
     }
 
-    public static float2 GetTangentAt(NativeArray<float2> c, in float t, in int idx) {
+    public static float2 GetTangentAt(NativeArray<float2> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
+        idx *= 4;
         return math.normalize(
             c[idx + 0] * (-omt2) +
             c[idx + 1] * (3f * omt2 - 2f * omt) +
@@ -168,7 +183,7 @@ public static class BDCCubic2d {
         return new float2(-tangent.y, tangent.x);
     }
 
-    public static float2 GetNormalAt(NativeArray<float2> c, in float t, in int idx) {
+    public static float2 GetNormalAt(NativeArray<float2> c, in float t, int idx) {
         float2 tangent = math.normalize(GetTangentAt(c, t, idx));
         return new float2(-tangent.y, tangent.x);
     }
@@ -224,10 +239,11 @@ public static class BDCCubic2d {
         }
     }
 
-    public static void CacheDistancesAt(NativeArray<float2> c, NativeArray<float> outDistances, in int idx) {
+    public static void CacheDistancesAt(NativeArray<float2> c, NativeArray<float> outDistances, int idx) {
         float dist = 0;
         outDistances[0] = 0f;
         float2 pPrev = c[0];
+        idx *= 4;
         for (int i = 1; i < outDistances.Length; i++) {
             float t = i / (float)(outDistances.Length - 1);
             float2 p = GetAt(c, t, idx);

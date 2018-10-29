@@ -11,11 +11,8 @@ using System.Runtime.InteropServices;
 /* 
     Todo:
 
-    projection is off:
-    - something that should be directly in the middle of the screen is not
-    - projection still seems isometric
-
-    Culling
+    - When part of a spline falls outside of frustum, it needs to be cut off, or culled
+    - 
 
     We might specify color and with only at the begin and end of a stroke.
 
@@ -42,7 +39,7 @@ public class Modeler : MonoBehaviour {
 
     private Rng _rng;
 
-    private const int NUM_CURVES = 1;
+    private const int NUM_CURVES = 4;
     private const int CONTROLS_PER_CURVE = 4;
 
     private void Awake() {
@@ -123,53 +120,59 @@ public class Modeler : MonoBehaviour {
         }
         
         Draw3dSplines();
-        DrawProjectedSplines();
+        // DrawProjectedSplines();
     }
 
     private void Draw3dSplines() {
         Gizmos.color = Color.white;
-        float3 pPrev = BDCCubic3d.Get(_controls, 0f);
-        Gizmos.DrawSphere(pPrev, 0.01f);
-        int steps = 16;
-        for (int i = 1; i <= steps; i++) {
-            float t = i / (float)(steps);
-            float3 p = BDCCubic3d.Get(_controls, t);
-            float3 tg = BDCCubic3d.GetTangent(_controls, t);
-            float3 n = BDCCubic3d.GetNormal(_controls, t, new float3(0,1,0));
-            Gizmos.DrawLine(pPrev, p);
-            Gizmos.DrawSphere(p, 0.01f);
+        for (int c = 0; c < NUM_CURVES; c++) {
+            float3 pPrev = BDCCubic3d.GetAt(_controls, 0f, c);
+            Gizmos.DrawSphere(pPrev, 0.01f);
+            int steps = 8;
+            for (int i = 1; i <= steps; i++) {
+                float t = i / (float)(steps);
+                float3 p = BDCCubic3d.GetAt(_controls, t, c);
+                float3 tg = BDCCubic3d.GetTangentAt(_controls, t, c);
+                float3 n = BDCCubic3d.GetNormalAt(_controls, t, new float3(0, 1, 0), c);
+                Gizmos.DrawLine(pPrev, p);
+                Gizmos.DrawSphere(p, 0.01f);
 
-            Gizmos.color = Color.blue;
-            Gizmos.DrawRay(p, n * 0.3f);
-            Gizmos.DrawRay(p, -n * 0.3f);
-            Gizmos.color = Color.green;
-            Gizmos.DrawRay(p, tg);
+                // Gizmos.color = Color.blue;
+                // Gizmos.DrawRay(p, n * 0.3f);
+                // Gizmos.DrawRay(p, -n * 0.3f);
+                // Gizmos.color = Color.green;
+                // Gizmos.DrawRay(p, tg);
 
-            pPrev = p;
+                pPrev = p;
+            }    
         }
+        
     }
 
     private void DrawProjectedSplines() {
-        Gizmos.color = Color.white;
-        float3 pPrev = ToFloat3(BDCCubic2d.Get(_projectedControls, 0f));
-        Gizmos.DrawSphere(pPrev, 0.01f);
-        int steps = 16;
-        for (int i = 1; i <= steps; i++) {
-            float t = i / (float)(steps);
-            float3 p = ToFloat3(BDCCubic2d.Get(_projectedControls, t));
-            float3 tg = ToFloat3(BDCCubic2d.GetTangent(_projectedControls, t));
-            float3 n = ToFloat3(BDCCubic2d.GetNormal(_projectedControls, t));
-            Gizmos.DrawLine(pPrev, p);
-            Gizmos.DrawSphere(p, 0.03f);
+        for (int c = 0; c < NUM_CURVES; c++) {
+            Gizmos.color = Color.white;
+            float3 pPrev = ToFloat3(BDCCubic2d.GetAt(_projectedControls, 0f, c));
+            Gizmos.DrawSphere(pPrev, 0.01f);
+            int steps = 16;
+            for (int i = 1; i <= steps; i++) {
+                float t = i / (float)(steps);
+                float3 p = ToFloat3(BDCCubic2d.GetAt(_projectedControls, t, c));
+                float3 tg = ToFloat3(BDCCubic2d.GetTangentAt(_projectedControls, t, c));
+                float3 n = ToFloat3(BDCCubic2d.GetNormalAt(_projectedControls, t, c));
+                Gizmos.DrawLine(pPrev, p);
+                Gizmos.DrawSphere(p, 0.03f);
 
-            Gizmos.color = Color.blue;
-            Gizmos.DrawRay(p, n * 0.3f);
-            Gizmos.DrawRay(p, -n * 0.3f);
-            Gizmos.color = Color.green;
-            Gizmos.DrawRay(p, tg);
+                // Gizmos.color = Color.blue;
+                // Gizmos.DrawRay(p, n * 0.3f);
+                // Gizmos.DrawRay(p, -n * 0.3f);
+                // Gizmos.color = Color.green;
+                // Gizmos.DrawRay(p, tg);
 
-            pPrev = p;
+                pPrev = p;
+            }
         }
+        
     }
 
     private static float3 ToFloat3(in float2 v) {
@@ -193,14 +196,17 @@ public class Modeler : MonoBehaviour {
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
-                    var p = o + new float3(
-                        math.cos(time * 1.5f + idx * 1f) * 5f,
-                        math.sin(time * 1.5f + idx * 1f) * 5f,
-                        0.0f * idx);
+                    // var p = o + new float3(
+                    //     math.cos(time * 1.5f + idx * 1f) * 5f,
+                    //     math.sin(time * 1.5f + idx * 1f) * 5f,
+                    //     0.0f * idx);c
+
+                    var p = new float3(i * 2, j * 2f, 1f);
+
                     controlPoints[idx] = p;
                 }
 
-                widths[i] = 1f;
+                widths[i] = 0.3f;
                 colors[i] = new float3(0.5f) + 0.5f * new float3(i * 0.07f % 1f, i * 0.063f % 1f, i * 0.047f % 1f);
             }
         }
@@ -218,11 +224,11 @@ public class Modeler : MonoBehaviour {
 
         public void Execute() {
             int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
-            for (int i = 0; i < numCurves; i++) {
+            for (int c = 0; c < numCurves; c++) {
                 float avgZ = 0;
-                bool cull = false;
+                // bool cull = false;
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                    int idx = i * CONTROLS_PER_CURVE + j;
+                    int idx = c * CONTROLS_PER_CURVE + j;
 
                     float4 p = new float4(controlPoints[idx].x, controlPoints[idx].y, controlPoints[idx].z, 1);
                     p = WorldToScreenPoint(p, projectionMatrix, worldToCamMatrix);
@@ -230,13 +236,18 @@ public class Modeler : MonoBehaviour {
 
                     avgZ += p.z;
 
-                    if (BDCCubic3d.GetNormalAt(controlPoints, j / (float)(CONTROLS_PER_CURVE-1), new float3(0,1,0), i).z > 0f) {
-                        cull = true;
-                    }
+                    // if (BDCCubic3d.GetNormalAt(controlPoints, j / (float)(CONTROLS_PER_CURVE-1), new float3(0,1,0), c).z > 0f) {
+                    //     cull = true;
+                    // }
                 }
                 avgZ *= 0.25f;
 
-                projectedWidths[i] = widths[i] / avgZ;
+                if (avgZ != 0f) {
+                    projectedWidths[c] = widths[c] / avgZ;
+                } else {
+                    projectedWidths[c] = 0f;
+                }
+                
                 
                 // if (cull) {
                 //     projectedWidths[i] = 0;
