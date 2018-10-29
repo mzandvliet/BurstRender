@@ -7,33 +7,37 @@ using Rng = Unity.Mathematics.Random;
 using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
-
-public struct Vertex {
-    public float3 vertex;
-    public float3 normal; // Note: unused right now
-    public float2 uv;
-    public float3 color;
-};
+using Unity.Collections.LowLevel.Unsafe;
 
 public class Painter : MonoBehaviour {
-    [SerializeField] private Material _brushMaterial;
+    [SerializeField] private Material _paintMaterial;
 
     [SerializeField] private Material _blitClearCanvasMaterial;
     [SerializeField] private Material _blitAddLayerMaterial;
 
-    private Camera _camera;
-    private CommandBuffer _commandBuffer;
+    private GameObject _meshObj;
+    private Mesh _mesh;
+    private MeshFilter _meshFilter;
+    private MeshRenderer _meshRenderer;
 
-    private NativeArray<Vertex> _brushVerts;
-    private ComputeBuffer _brushBuffer;
+    private Camera _camera;
+
+    private NativeArray<float3> _verts;
+    private NativeArray<float3> _normals;
+    private NativeArray<float2> _uvs;
+    private NativeArray<int> _indices;
+    private Vector3[] _vertsMan;
+    private Vector3[] _normalsMan;
+    private int[] _indicesMan;
+    private Vector2[] _uvsMan;
 
     private Rng _rng;
 
     private RenderTexture _canvasTex;
 
     private const int CONTROLS_PER_CURVE = 4;
-    private const int CURVE_TESSELATION = 32;
-    private const int VERTS_PER_TESSEL = 6 * 2; // 2 quads, each 2 tris, no vert sharing...
+    private const int VERTS_VERTICAL = 16;
+    private const int VERTS_HORIZONTAL = 3; 
 
     private void Awake() {
         _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24);
@@ -47,22 +51,39 @@ public class Painter : MonoBehaviour {
 
         _rng = new Rng(1234);
 
+        _mesh = new Mesh();
+        _meshObj = new GameObject("Mesh");
+        _meshFilter = _meshObj.AddComponent<MeshFilter>();
+        _meshRenderer = _meshObj.AddComponent<MeshRenderer>();
+        _meshFilter.mesh = _mesh;
+        _meshRenderer.material = _paintMaterial;
+
         Clear();
     }
 
     public void Init(int maxCurves) {
-        _brushVerts = new NativeArray<Vertex>(maxCurves * CONTROLS_PER_CURVE * CURVE_TESSELATION * VERTS_PER_TESSEL, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-        _brushBuffer = new ComputeBuffer(_brushVerts.Length, Marshal.SizeOf(typeof(Vertex)));
-        _brushMaterial.SetBuffer("verts", _brushBuffer);
+        int numVerts = maxCurves * VERTS_VERTICAL * VERTS_HORIZONTAL;
+        int numIndices = maxCurves * (VERTS_VERTICAL-1) * (VERTS_HORIZONTAL-1) * 2 * 3;
 
-        _commandBuffer = new CommandBuffer();
-        _commandBuffer.DrawProcedural(transform.localToWorldMatrix, _brushMaterial, -1, MeshTopology.Triangles, _brushVerts.Length, 1);
-        _camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
+        Debug.Log(numVerts + ", " + numIndices);
+
+        _verts = new NativeArray<float3>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+        _normals = new NativeArray<float3>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+        _uvs = new NativeArray<float2>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+        _indices = new NativeArray<int>(numIndices, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+
+        _vertsMan = new Vector3[numVerts];
+        _normalsMan = new Vector3[numVerts];
+        _uvsMan = new Vector2[numVerts];
+        _indicesMan = new int[numIndices];
     }
 
     private void OnDestroy() {
-        _brushVerts.Dispose();
-        _brushBuffer.Dispose();
+        _verts.Dispose();
+        _normals.Dispose();
+        _uvs.Dispose();
+        _indices.Dispose();
+
         _canvasTex.Release();
     }
 
@@ -75,13 +96,32 @@ public class Painter : MonoBehaviour {
         tessJob.controls = curves;
         tessJob.widths = widths;
         tessJob.colors = colors;
-        tessJob.brushVerts = _brushVerts;
-        var h = tessJob.Schedule(curves.Length / CONTROLS_PER_CURVE, 1);
+
+        tessJob.verts = _verts;
+        tessJob.normals = _normals;
+        tessJob.uvs = _uvs;
+        tessJob.indices = _indices;
+        var h = tessJob.Schedule();
 
         h.Complete();
-        _brushBuffer.SetData(_brushVerts);
+
+        UpdateMesh();
         
         _camera.Render();
+    }
+
+    private void UpdateMesh() {
+        Util.Copy(_vertsMan, _verts);
+        Util.Copy(_normalsMan, _normals);
+        Util.Copy(_indicesMan, _indices);
+        Util.Copy(_uvsMan, _uvs);
+
+        // The below is now the biggest bottleneck, at 0.24ms per frame on my machine
+        _mesh.vertices = _vertsMan;
+        _mesh.normals = _normalsMan;
+        _mesh.triangles = _indicesMan;
+        _mesh.uv = _uvsMan;
+        _mesh.UploadMeshData(false);
     }
 
     private void OnGUI() {
@@ -99,109 +139,105 @@ public class Painter : MonoBehaviour {
         maaaay want to do this in a ComputeShader instead, we'll see
      */
 
-    private struct TesslateCurvesJob : IJobParallelFor {
+    private struct TesslateCurvesJob : IJob {
         [ReadOnly] public NativeArray<float2> controls;
         [ReadOnly] public NativeArray<float3> colors;
         [ReadOnly] public NativeArray<float> widths;
 
-        [NativeDisableParallelForRestriction] public NativeArray<Vertex> brushVerts;
+        public NativeArray<float3> verts;
+        public NativeArray<float3> normals;
+        public NativeArray<float2> uvs;
+        public NativeArray<int> indices;
 
-        public void Execute(int curveId) {
-            int vertOffset = curveId * CURVE_TESSELATION * VERTS_PER_TESSEL;
-            int firstControl = curveId * CONTROLS_PER_CURVE;
 
-            for (int i = 0; i < CURVE_TESSELATION; i++) {
-                float tA = i / (float)(CURVE_TESSELATION);
+        public void Execute() {
+            int numCurves = controls.Length / 4;
+            for (int curveId = 0; curveId < numCurves; curveId++) {
+                int firstControl = curveId * CONTROLS_PER_CURVE;
 
-                float3 posA = ToFloat3(BDCCubic2d.GetAt(controls, tA, firstControl));
-                float3 norA = ToFloat3(-BDCCubic2d.GetNormalAt(controls, tA, firstControl));
+                for (int i = 0; i < VERTS_VERTICAL; i++) {
+                    int idx = curveId * VERTS_VERTICAL + i;
+                    float t = i / (float)(VERTS_VERTICAL);
 
-                float tB = (i + 1) / (float)(CURVE_TESSELATION);
-                float3 posB = ToFloat3(BDCCubic2d.GetAt(controls, tB, firstControl));
-                float3 norB = ToFloat3(-BDCCubic2d.GetNormalAt(controls, tB, firstControl));
+                    float3 pos = ToFloat3(BDCCubic2d.GetAt(controls, t, firstControl));
+                    float3 edge = ToFloat3(-BDCCubic2d.GetNormalAt(controls, t, firstControl));
+                    
+                    float width = widths[curveId];
+                    edge *= width;
 
-                // todo: linearize the uvs using cached distances or lower degree Berstein Polys
-                float uvYA = tA;
-                float uvYB = tB;
+                    float uvY = i / (float)(VERTS_VERTICAL - 1);
 
-                float widthA = widths[curveId];
-                float widthB = widths[curveId];
+                    var normal = new float3(0, 0, -1);
 
-                norA *= widthA;
-                norB *= widthB;
+                    verts[idx * 3 + 0] = pos - edge;
+                    verts[idx * 3 + 1] = pos;
+                    verts[idx * 3 + 2] = pos + edge;
 
-                int quadStartIdx = vertOffset + i * VERTS_PER_TESSEL;
+                    normals[idx * 3 + 0] = normal;
+                    normals[idx * 3 + 1] = normal;
+                    normals[idx * 3 + 2] = normal;
 
-                var v = new Vertex();
-                v.normal = new float3(0, 0, -1);
+                    const float uvTile = 1f;
 
-                float uvTiling = 1f;
+                    uvs[idx * 3 + 0] = new float2(0.0f, uvY * uvTile);
+                    uvs[idx * 3 + 1] = new float2(0.5f, uvY * uvTile);
+                    uvs[idx * 3 + 2] = new float2(1.0f, uvY * uvTile);
+                }
+            }
 
-                // Triangle 1
-                v.vertex = posA - norA;
-                v.uv = new float2(0, uvYA * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 0] = v;
+            for (int i = 0; i < numCurves * (VERTS_VERTICAL-1); i++) {
+                int idx = i * 12;
 
-                v.vertex = posB - norB;
-                v.uv = new float2(0, uvYB * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 1] = v;
+                indices[idx + 0 ] = (i + 0) * 3 + 0;
+                indices[idx + 1 ] = (i + 1) * 3 + 0;
+                indices[idx + 2 ] = (i + 1) * 3 + 1;
 
-                v.vertex = posB;
-                v.uv = new float2(0.5f, uvYB * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 2] = v;
+                indices[idx + 3 ] = (i + 0) * 3 + 0;
+                indices[idx + 4 ] = (i + 1) * 3 + 1;
+                indices[idx + 5 ] = (i + 0) * 3 + 1;
 
-                // Triangle 2
-                v.vertex = posB;
-                v.uv = new float2(0.5f, uvYB * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 3] = v;
+                indices[idx + 6 ] = (i + 0) * 3 + 1;
+                indices[idx + 7 ] = (i + 1) * 3 + 1;
+                indices[idx + 8 ] = (i + 1) * 3 + 2;
 
-                v.vertex = posA;
-                v.uv = new float2(0.5f, uvYA * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 4] = v;
-
-                v.vertex = posA - norA;
-                v.uv = new float2(0f, uvYA * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 5] = v;
-
-                // Triangle 3
-                v.vertex = posA;
-                v.uv = new float2(0.5f, uvYA * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 6] = v;
-
-                v.vertex = posB;
-                v.uv = new float2(0.5f, uvYB * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 7] = v;
-
-                v.vertex = posB + norB;
-                v.uv = new float2(1f, uvYB * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 8] = v;
-
-                // Triangle 4
-
-                v.vertex = posB + norB;
-                v.uv = new float2(1f, uvYB * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 9] = v;
-
-                v.vertex = posA + norA;
-                v.uv = new float2(1f, uvYA * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 10] = v;
-
-                v.vertex = posA;
-                v.uv = new float2(0.5f, uvYA * uvTiling);
-                v.color = colors[curveId];
-                brushVerts[quadStartIdx + 11] = v;
+                indices[idx + 9 ] = (i + 0) * 3 + 1;
+                indices[idx + 10] = (i + 1) * 3 + 2;
+                indices[idx + 11] = (i + 0) * 3 + 2;
             }
         }
+    }
+
+    public static class Util {
+        public static Vector3 ToVec3(float2 p) {
+            return new Vector3(p.x, p.y, 0f);
+        }
+
+        public static unsafe void Copy(Vector3[] destination, NativeArray<float3> source) {
+            fixed (void* vertexArrayPointer = destination) {
+                UnsafeUtility.MemCpy(
+                    vertexArrayPointer,
+                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                    destination.Length * (long)UnsafeUtility.SizeOf<float3>());
+            }
+        }
+
+        public static unsafe void Copy(Vector2[] destination, NativeArray<float2> source) {
+            fixed (void* vertexArrayPointer = destination) {
+                UnsafeUtility.MemCpy(
+                    vertexArrayPointer,
+                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                    destination.Length * (long)UnsafeUtility.SizeOf<float2>());
+            }
+        }
+
+        public static unsafe void Copy(int[] destination, NativeArray<int> source) {
+            fixed (void* vertexArrayPointer = destination) {
+                UnsafeUtility.MemCpy(
+                    vertexArrayPointer,
+                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                    destination.Length * (long)UnsafeUtility.SizeOf<int>());
+            }
+        }
+
     }
 }

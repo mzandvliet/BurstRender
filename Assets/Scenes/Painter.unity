@@ -142,7 +142,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 78a3aa1bf4ab27e4b9529c0bb9361314, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _brushMaterial: {fileID: 2100000, guid: 6bc54445a0e62374896af6f942e0289f, type: 2}
+  _paintMaterial: {fileID: 2100000, guid: 1cb4f5fef9e574542800a125a625b02d, type: 2}
   _blitClearCanvasMaterial: {fileID: 2100000, guid: d46f3ab8a5067bb419f22f4b499cef52,
     type: 2}
   _blitAddLayerMaterial: {fileID: 2100000, guid: b3f06984caa3cd847a0654ff3e4074a7,
@@ -311,7 +311,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2027591631}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: -10}
+  m_LocalPosition: {x: 0, y: 0, z: -1}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}

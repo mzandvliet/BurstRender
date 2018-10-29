@@ -75,34 +75,30 @@ public class Modeler : MonoBehaviour {
     private void Update() {
         var h = new JobHandle();
 
-        if (Time.frameCount % 60 == 0) {
-            _painter.Clear();
-        }
+        _painter.Clear();
 
-        if (Time.frameCount % 10 == 0) {
-            var cj = new GenerateSpiralJob();
-            cj.time = Time.frameCount * 0.01f;
-            cj.rng = new Rng((uint)_rng.NextInt());
-            cj.controlPoints = _controls;
-            cj.widths = _widths;
-            cj.colors = _colors;
-            h = cj.Schedule();
+        var cj = new GenerateSpiralJob();
+        cj.time = Time.frameCount * 0.01f;
+        cj.rng = new Rng((uint)_rng.NextInt());
+        cj.controlPoints = _controls;
+        cj.widths = _widths;
+        cj.colors = _colors;
+        h = cj.Schedule();
 
-            var pj = new ProjectCurvesJob();
-            pj.worldToCamMatrix = _camera.worldToCameraMatrix;
-            pj.projectionMatrix = _camera.projectionMatrix;
-            pj.controlPoints = _controls;
-            pj.widths = _widths;
-            pj.projectedControls = _projectedControls;
-            pj.projectedWidths = _projectedWidths;
-            h = pj.Schedule(h);
+        var pj = new ProjectCurvesJob();
+        pj.worldToCamMatrix = _camera.worldToCameraMatrix;
+        pj.projectionMatrix = _camera.projectionMatrix;
+        pj.controlPoints = _controls;
+        pj.widths = _widths;
+        pj.projectedControls = _projectedControls;
+        pj.projectedWidths = _projectedWidths;
+        h = pj.Schedule(h);
 
-            h.Complete();
+        h.Complete();
 
-            // Project();
+        // Project();
 
-            _painter.Draw(_projectedControls, _projectedWidths, _colors);
-        }
+        _painter.Draw(_projectedControls, _projectedWidths, _colors);
     }
 
     public void Project() {
@@ -197,12 +193,14 @@ public class Modeler : MonoBehaviour {
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
-                    var p = o + new float3(math.cos(time + idx / 4f) * 4f, 0.0f * idx, math.sin(time + idx / 4f) * 4f);
-                    // var p = new float3(0,idx * 0.1f, 1f);
+                    var p = o + new float3(
+                        math.cos(time * 1.5f + idx * 1f) * 5f,
+                        math.sin(time * 1.5f + idx * 1f) * 5f,
+                        0.0f * idx);
                     controlPoints[idx] = p;
                 }
 
-                widths[i] = 1.5f;
+                widths[i] = 1f;
                 colors[i] = new float3(0.5f) + 0.5f * new float3(i * 0.07f % 1f, i * 0.063f % 1f, i * 0.047f % 1f);
             }
         }
@@ -237,12 +235,14 @@ public class Modeler : MonoBehaviour {
                     }
                 }
                 avgZ *= 0.25f;
+
+                projectedWidths[i] = widths[i] / avgZ;
                 
-                if (cull) {
-                    projectedWidths[i] = 0;
-                } else {
-                    projectedWidths[i] = widths[i] / avgZ;
-                }
+                // if (cull) {
+                //     projectedWidths[i] = 0;
+                // } else {
+                //     projectedWidths[i] = widths[i] / avgZ;
+                // }
                 
             }
         }
