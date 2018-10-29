@@ -36,7 +36,7 @@ public class Painter : MonoBehaviour {
     private RenderTexture _canvasTex;
 
     private const int CONTROLS_PER_CURVE = 4;
-    private const int TESSELATE_VERTICAL = 4;
+    private const int TESSELATE_VERTICAL = 16;
     private const int TESSELATE_HORIZONTAL = 3; 
 
     private void Awake() {

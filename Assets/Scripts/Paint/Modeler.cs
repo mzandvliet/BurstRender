@@ -39,7 +39,7 @@ public class Modeler : MonoBehaviour {
 
     private Rng _rng;
 
-    private const int NUM_CURVES = 4;
+    private const int NUM_CURVES = 128;
     private const int CONTROLS_PER_CURVE = 4;
 
     private void Awake() {
@@ -196,12 +196,12 @@ public class Modeler : MonoBehaviour {
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
-                    // var p = o + new float3(
-                    //     math.cos(time * 1.5f + idx * 1f) * 5f,
-                    //     math.sin(time * 1.5f + idx * 1f) * 5f,
-                    //     0.0f * idx);c
+                    var p = o + new float3(
+                        math.cos(time * 1.5f + idx * 1f) * 5f,
+                        math.sin(time * 1.5f + idx * 1f) * 5f,
+                        0.1f * idx);
 
-                    var p = new float3(i * 2, j * 2f, 1f);
+                    // var p = new float3(i * 2, j * 2f, 1f);
 
                     controlPoints[idx] = p;
                 }
@@ -259,18 +259,13 @@ public class Modeler : MonoBehaviour {
         }
 
         private static float4 WorldToScreenPoint(float4 wp, float4x4 projectionMatrix, float4x4 worldToCameraMatrix) {
-            // calculate view-projection matrix
             float4x4 mat = math.mul(projectionMatrix, worldToCameraMatrix);
 
-            // multiply world point by VP matrix
             Vector4 temp = math.mul(mat, wp);
 
             if (temp.w == 0f) {
-                // point is exactly on camera focus point, screen point is undefined
-                // unity handles this by returning 0,0,0
                 return new float4();
             } else {
-                // convert x and y from clip space to window coordinates
                 temp.x = (temp.x / temp.w);
                 temp.y = (temp.y / temp.w );
                 return new float4(temp.x, temp.y, wp.z, 1);
