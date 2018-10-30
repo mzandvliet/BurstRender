@@ -164,7 +164,7 @@ public class Painter : MonoBehaviour {
                     float width = widths[c];
                     edge *= width;
 
-                    float uvY = i / (float)(TESSELATE_VERTICAL - 1);
+                    float uvY = t;
 
                     var normal = new float3(0, 0, -1);
 

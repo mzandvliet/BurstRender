@@ -83,8 +83,7 @@ public class Modeler : MonoBehaviour {
         h = cj.Schedule();
 
         var pj = new ProjectCurvesJob();
-        pj.worldToCamMatrix = _camera.worldToCameraMatrix;
-        pj.projectionMatrix = _camera.projectionMatrix;
+        pj.mat = math.mul(_camera.projectionMatrix, _camera.worldToCameraMatrix);
         pj.controlPoints = _controls;
         pj.widths = _widths;
         pj.projectedControls = _projectedControls;
@@ -93,25 +92,7 @@ public class Modeler : MonoBehaviour {
 
         h.Complete();
 
-        // Project();
-
         _painter.Draw(_projectedControls, _projectedWidths, _colors);
-    }
-
-    public void Project() {
-        int numCurves = _controls.Length / CONTROLS_PER_CURVE;
-        for (int i = 0; i < numCurves; i++) {
-            float avgZ = 0;
-            for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                int idx = i * CONTROLS_PER_CURVE + j;
-                float3 p = _camera.WorldToViewportPoint(_controls[idx]);
-                _projectedControls[idx] = new float2(p.x, p.y) / p.z;
-
-                avgZ += p.z;
-            }
-            avgZ *= 0.25f;
-            _projectedWidths[i] = _widths[i] / avgZ;
-        }
     }
 
     private void OnDrawGizmos() {
@@ -213,8 +194,7 @@ public class Modeler : MonoBehaviour {
     }
 
     private struct ProjectCurvesJob : IJob {
-        [ReadOnly] public float4x4 worldToCamMatrix;
-        [ReadOnly] public float4x4 projectionMatrix;
+        [ReadOnly] public float4x4 mat;
 
         [ReadOnly] public NativeArray<float3> controlPoints;
         [ReadOnly] public NativeArray<float> widths;
@@ -231,7 +211,7 @@ public class Modeler : MonoBehaviour {
                     int idx = c * CONTROLS_PER_CURVE + j;
 
                     float4 p = new float4(controlPoints[idx].x, controlPoints[idx].y, controlPoints[idx].z, 1);
-                    p = WorldToScreenPoint(p, projectionMatrix, worldToCamMatrix);
+                    p = WorldToScreenPoint(p, mat);
                     projectedControls[idx] = new float2(p.x, p.y);
 
                     avgZ += p.z;
@@ -258,17 +238,15 @@ public class Modeler : MonoBehaviour {
             }
         }
 
-        private static float4 WorldToScreenPoint(float4 wp, float4x4 projectionMatrix, float4x4 worldToCameraMatrix) {
-            float4x4 mat = math.mul(projectionMatrix, worldToCameraMatrix);
-
-            Vector4 temp = math.mul(mat, wp);
+        private static float4 WorldToScreenPoint(float4 p, float4x4 mat) {
+            Vector4 temp = math.mul(mat, p);
 
             if (temp.w == 0f) {
                 return new float4();
             } else {
                 temp.x = (temp.x / temp.w);
                 temp.y = (temp.y / temp.w );
-                return new float4(temp.x, temp.y, wp.z, 1);
+                return new float4(temp.x, temp.y, p.z, 1);
             }
         }
     }
