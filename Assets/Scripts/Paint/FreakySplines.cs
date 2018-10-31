@@ -47,7 +47,7 @@ public class FreakySplines : MonoBehaviour {
         for (int i = 0; i < _curve3d.Length; i++) {
             float4 p = new float4(_curve3d[i], 1);
             p = math.mul(math.mul(projection, worldToCam), p);
-            _curve2d[i] = new float2(p.x, p.y) / p.w * 65f;
+            _curve2d[i] = new float2(p.x, p.y) / p.w * 10f;
         }
     }
 
@@ -71,7 +71,7 @@ public class FreakySplines : MonoBehaviour {
         }
 
         Draw3dCurve();
-        Draw2dCurve();
+        // Draw2dCurve();
     }
 
     private void Draw3dCurve() {
@@ -85,28 +85,39 @@ public class FreakySplines : MonoBehaviour {
         Gizmos.color = Color.white;
         float3 pPrev = BDCCubic3d.Get(_curve3d, 0f);
         Gizmos.DrawSphere(pPrev, 0.01f);
-        int steps = 64;
+        int steps = 32;
         for (int i = 0; i <= steps; i++) {
-            float t = i / (float)(steps) + math.frac(Time.time * 5f) * (1f / (float)steps);
+            float t = i / (float)(steps*2f) + (Time.frameCount%60) * 0.33f * (1f / (float)steps*2f);
 
+            Gizmos.color = Color.white;
             float3 p = BDCCubic3d.Get(_curve3d, t);
             Gizmos.DrawSphere(p, 0.01f);
 
-            float3 tg = BDCCubic3d.GetTangent(_curve3d, t);
-            float3 n = BDCCubic3d.GetNormal(_curve3d, t, new float3(0, 1, 0));
-            Gizmos.color = Color.blue;
-            Gizmos.DrawRay(p, n * 0.3f);
-            Gizmos.DrawRay(p, -n * 0.3f);
+            // float3 tg = BDCCubic3d.GetTangent(_curve3d, t);
+            // float3 n = BDCCubic3d.GetNormal(_curve3d, t, new float3(0, 1, 0));
+            float3 tangent = BDCCubic3d.GetNonUnitTangent(_curve3d, t);
+            
+
             Gizmos.color = Color.green;
-            Gizmos.DrawRay(p, tg);
+            Gizmos.DrawRay(p, tangent);
 
             if (i > 1) {
+                var tangentTipDelta = math.cross((p + tangent), (pPrev + prevTangent));
+                float3 n = BDCCubic3d.GetNonUnitNormal(_curve3d, t, tangentTipDelta);
+                Gizmos.color = Color.blue;
+                Gizmos.DrawRay(p, n * 0.3f);
+                Gizmos.DrawRay(p, -n * 0.3f);
+
                 Gizmos.DrawLine(pPrev, p);
-                Gizmos.DrawLine(pPrev + prevTangent, p + tg);
+                Gizmos.DrawLine(pPrev + prevTangent, p + tangent);
+
+                // Debug.Log(math.length(tangentTipDelta));
             }
 
+            
+
             pPrev = p;
-            prevTangent = tg;
+            prevTangent = tangent;
         }
     }
 
