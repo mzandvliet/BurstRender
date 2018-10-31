@@ -47,6 +47,17 @@ public static class BDCCubic3d {
         );
     }
 
+    public static float3 GetNonUnitTangent(NativeArray<float3> c, in float t) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        return
+            c[0] * (-omt2) +
+            c[1] * (3f * omt2 - 2f * omt) +
+            c[2] * (-3f * t2 + 2f * t) +
+            c[3] * (t2);
+    }
+
     public static float3 GetTangentAt(NativeArray<float3> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
@@ -60,11 +71,19 @@ public static class BDCCubic3d {
         );
     }
 
+    // Assumes tangent and up are already normal vectors
     public static float3 GetNormal(NativeArray<float3> c, in float t, in float3 up) {
         float3 tangent = GetTangent(c, t);
         float3 binorm = math.cross(up, tangent);
-        return math.normalize(math.cross(tangent, binorm));
+        return math.cross(tangent, binorm);
     }
+
+    public static float3 GetNonUnitNormal(NativeArray<float3> c, in float t, in float3 up) {
+        float3 tangent = GetNonUnitTangent(c, t);
+        float3 binorm = math.cross(up, tangent);
+        return math.cross(tangent, binorm);
+    }
+
 
     public static float3 GetNormalAt(NativeArray<float3> c, in float t, in float3 up, int idx) {
         float3 tangent = GetTangentAt(c, t, idx);
@@ -163,6 +182,17 @@ public static class BDCCubic2d {
             c[2] * (-3f * t2 + 2f * t) +
             c[3] * (t2)
         );
+    }
+
+    public static float2 GetNonUnitTangent(NativeArray<float2> c, in float t) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        return
+            c[0] * (-omt2) +
+            c[1] * (3f * omt2 - 2f * omt) +
+            c[2] * (-3f * t2 + 2f * t) +
+            c[3] * (t2);
     }
 
     public static float2 GetTangentAt(NativeArray<float2> c, in float t, int idx) {

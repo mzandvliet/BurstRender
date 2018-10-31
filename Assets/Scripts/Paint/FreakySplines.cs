@@ -8,10 +8,15 @@ using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
-// Hah, projection of the curves from 3d to 2d, at least isometrically, is trivial!
-// Just project the control points and you're done.
+/* We're just going to make some doodles with spline arithmetic
 
-public class SplineProjectionTest : MonoBehaviour {
+    Ideas: non-unit tangents and normals
+
+    Two splines crossed with each other can form a patch
+
+ */
+
+public class FreakySplines : MonoBehaviour {
     [SerializeField] private Camera _camera;
     private NativeArray<float3> _curve3d;
     private NativeArray<float2> _curve2d;
@@ -42,7 +47,7 @@ public class SplineProjectionTest : MonoBehaviour {
         for (int i = 0; i < _curve3d.Length; i++) {
             float4 p = new float4(_curve3d[i], 1);
             p = math.mul(math.mul(projection, worldToCam), p);
-            _curve2d[i] = new float2(p.x, p.y) / p.w * 10f;
+            _curve2d[i] = new float2(p.x, p.y) / p.w * 65f;
         }
     }
 
@@ -75,25 +80,33 @@ public class SplineProjectionTest : MonoBehaviour {
             Gizmos.DrawSphere(_curve3d[i], 0.05f);
         }
 
+        var prevTangent = new float3();
+
         Gizmos.color = Color.white;
         float3 pPrev = BDCCubic3d.Get(_curve3d, 0f);
         Gizmos.DrawSphere(pPrev, 0.01f);
-        int steps = 16;
-        for (int i = 1; i <= steps; i++) {
-            float t = i / (float)(steps);
+        int steps = 64;
+        for (int i = 0; i <= steps; i++) {
+            float t = i / (float)(steps) + math.frac(Time.time * 5f) * (1f / (float)steps);
+
             float3 p = BDCCubic3d.Get(_curve3d, t);
-            float3 tg = BDCCubic3d.GetTangent(_curve3d, t);
-            float3 n = BDCCubic3d.GetNormal(_curve3d, t, new float3(0, 1, 0));
-            Gizmos.DrawLine(pPrev, p);
             Gizmos.DrawSphere(p, 0.01f);
 
+            float3 tg = BDCCubic3d.GetTangent(_curve3d, t);
+            float3 n = BDCCubic3d.GetNormal(_curve3d, t, new float3(0, 1, 0));
             Gizmos.color = Color.blue;
             Gizmos.DrawRay(p, n * 0.3f);
             Gizmos.DrawRay(p, -n * 0.3f);
             Gizmos.color = Color.green;
             Gizmos.DrawRay(p, tg);
 
+            if (i > 1) {
+                Gizmos.DrawLine(pPrev, p);
+                Gizmos.DrawLine(pPrev + prevTangent, p + tg);
+            }
+
             pPrev = p;
+            prevTangent = tg;
         }
     }
 
@@ -110,7 +123,7 @@ public class SplineProjectionTest : MonoBehaviour {
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)(steps);
             var p = Math.ToVec3(BDCCubic2d.Get(_curve2d, t));
-            var tg = Math.ToVec3(BDCCubic2d.GetTangent(_curve2d, t));
+            var tg = Math.ToVec3(BDCCubic2d.GetNonUnitTangent(_curve2d, t));
             var n = Math.ToVec3(BDCCubic2d.GetNormal(_curve2d, t));
             Gizmos.DrawLine(pPrev, p);
             Gizmos.DrawSphere(p, 0.01f);
