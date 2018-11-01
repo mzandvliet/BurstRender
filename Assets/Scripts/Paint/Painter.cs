@@ -24,10 +24,12 @@ public class Painter : MonoBehaviour {
 
     private NativeArray<float3> _verts;
     private NativeArray<float3> _normals;
+    private NativeArray<float4> _vertColors;
     private NativeArray<float2> _uvs;
     private NativeArray<int> _indices;
     private Vector3[] _vertsMan;
     private Vector3[] _normalsMan;
+    private Color[] _vertColorsMan;
     private int[] _indicesMan;
     private Vector2[] _uvsMan;
 
@@ -69,11 +71,13 @@ public class Painter : MonoBehaviour {
 
         _verts = new NativeArray<float3>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
         _normals = new NativeArray<float3>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+        _vertColors = new NativeArray<float4>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
         _uvs = new NativeArray<float2>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
         _indices = new NativeArray<int>(numIndices, Allocator.Persistent, NativeArrayOptions.ClearMemory);
 
         _vertsMan = new Vector3[numVerts];
         _normalsMan = new Vector3[numVerts];
+        _vertColorsMan = new Color[numVerts];
         _uvsMan = new Vector2[numVerts];
         _indicesMan = new int[numIndices];
     }
@@ -81,6 +85,7 @@ public class Painter : MonoBehaviour {
     private void OnDestroy() {
         _verts.Dispose();
         _normals.Dispose();
+        _vertColors.Dispose();
         _uvs.Dispose();
         _indices.Dispose();
 
@@ -99,11 +104,16 @@ public class Painter : MonoBehaviour {
 
         tessJob.verts = _verts;
         tessJob.normals = _normals;
+        tessJob.vertColors = _vertColors;
         tessJob.uvs = _uvs;
         tessJob.indices = _indices;
         var h = tessJob.Schedule();
 
         h.Complete();
+
+        for (int i = 0; i < colors.Length; i++) {
+            Debug.Log(colors[i]);
+        }
 
         UpdateMesh();
         
@@ -113,6 +123,7 @@ public class Painter : MonoBehaviour {
     private void UpdateMesh() {
         Util.Copy(_vertsMan, _verts);
         Util.Copy(_normalsMan, _normals);
+        Util.Copy(_vertColorsMan, _vertColors);
         Util.Copy(_indicesMan, _indices);
         Util.Copy(_uvsMan, _uvs);
 
@@ -120,6 +131,7 @@ public class Painter : MonoBehaviour {
         _mesh.vertices = _vertsMan;
         _mesh.normals = _normalsMan;
         _mesh.triangles = _indicesMan;
+        _mesh.colors = _vertColorsMan;
         _mesh.uv = _uvsMan;
         _mesh.RecalculateBounds();
         _mesh.UploadMeshData(false);
@@ -148,12 +160,15 @@ public class Painter : MonoBehaviour {
         public NativeArray<float3> verts;
         public NativeArray<float3> normals;
         public NativeArray<float2> uvs;
+        public NativeArray<float4> vertColors;
         public NativeArray<int> indices;
 
 
         public void Execute() {
             int numCurves = controls.Length / 4;
             for (int c = 0; c < numCurves; c++) {
+                float4 color = new float4(colors[c].x, colors[c].y, colors[c].z, 1f);
+                
                 for (int i = 0; i < TESSELATE_VERTICAL; i++) {
                     int idx = c * TESSELATE_VERTICAL + i;
                     float t = i / (float)(TESSELATE_VERTICAL-1);
@@ -175,6 +190,10 @@ public class Painter : MonoBehaviour {
                     normals[idx * 3 + 0] = normal;
                     normals[idx * 3 + 1] = normal;
                     normals[idx * 3 + 2] = normal;
+
+                    vertColors[idx * 3 + 0] = color;
+                    vertColors[idx * 3 + 1] = color;
+                    vertColors[idx * 3 + 2] = color;
 
                     const float uvTile = 1f;
 
@@ -220,6 +239,15 @@ public class Painter : MonoBehaviour {
                     vertexArrayPointer,
                     NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
                     destination.Length * (long)UnsafeUtility.SizeOf<float3>());
+            }
+        }
+
+        public static unsafe void Copy(Color[] destination, NativeArray<float4> source) {
+            fixed (void* vertexArrayPointer = destination) {
+                UnsafeUtility.MemCpy(
+                    vertexArrayPointer,
+                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                    destination.Length * (long)UnsafeUtility.SizeOf<float4>());
             }
         }
 

@@ -1,4 +1,4 @@
-﻿Shader "Custom/PaintStroke" {
+﻿Shader "Custom/PaintStrokeCompute" {
 	Properties 	{
 		_MainTex("Texture", 2D) = "white" {}
 	}

@@ -11,17 +11,15 @@ using System.Runtime.InteropServices;
 /* 
     Todo:
 
-    - When part of a spline falls outside of frustum, it needs to be cut off, or culled
-    - 
-
-    We might specify color and with only at the begin and end of a stroke.
+    - Make splines out of curves
+    - Make oriented patches out of curves
+    - When part of a spline falls outside of frustum, it needs to be cut off, or culled?
+        - Maybe we don't need to do that, only generate strokes on geometry that lies
+        within view in the first place.
 
     make compositions
 
     Render grandfather's painting
-
-    Make it such that a spline path can be arbitary length. Possibly gets multi-stroke if longer than x.
-    Then we can start generating some Gogh-likes by spiraling splines around attractors.
  */
 
 public class Modeler : MonoBehaviour {
@@ -39,7 +37,7 @@ public class Modeler : MonoBehaviour {
 
     private Rng _rng;
 
-    private const int NUM_CURVES = 128;
+    private const int NUM_CURVES = 4;
     private const int CONTROLS_PER_CURVE = 4;
 
     private void Awake() {
@@ -56,10 +54,6 @@ public class Modeler : MonoBehaviour {
         _rng = new Rng(1234);
     }
 
-    private void Start() {
-        _painter.Init(NUM_CURVES);
-    }
-
     private void OnDestroy() {
         _controls.Dispose();
         _widths.Dispose();
@@ -69,30 +63,53 @@ public class Modeler : MonoBehaviour {
         _colors.Dispose();
     }
 
+    private void Start() {
+        _painter.Init(NUM_CURVES);
+    }
+
     private void Update() {
+        if (Time.frameCount % 2 == 0) {
+            Paint();
+        }
+    }
+
+    private void Paint() {
         var h = new JobHandle();
 
-        _painter.Clear();
+        //_painter.Clear();
 
-        var cj = new GenerateSpiralJob();
-        cj.time = Time.frameCount * 0.01f;
-        cj.rng = new Rng((uint)_rng.NextInt());
-        cj.controlPoints = _controls;
-        cj.widths = _widths;
-        cj.colors = _colors;
-        h = cj.Schedule();
+        // var cj = new GenerateSpiralJob();
+        // cj.time = Time.frameCount * 0.01f;
+        // cj.rng = new Rng((uint)_rng.NextInt());
+        // cj.controlPoints = _controls;
+        // cj.widths = _widths;
+        // cj.colors = _colors;
+        // h = cj.Schedule();
 
-        var pj = new ProjectCurvesJob();
-        pj.mat = math.mul(_camera.projectionMatrix, _camera.worldToCameraMatrix);
-        pj.controlPoints = _controls;
-        pj.widths = _widths;
-        pj.projectedControls = _projectedControls;
-        pj.projectedWidths = _projectedWidths;
-        h = pj.Schedule(h);
+        // var pj = new ProjectCurvesJob();
+        // pj.mat = math.mul(_camera.projectionMatrix, _camera.worldToCameraMatrix);
+        // pj.controlPoints = _controls;
+        // pj.widths = _widths;
+        // pj.projectedControls = _projectedControls;
+        // pj.projectedWidths = _projectedWidths;
+        // h = pj.Schedule(h);
 
-        h.Complete();
+        // h.Complete();
+
+        for (int i = 0; i < _projectedControls.Length/4; i++) {
+            SampleCurve(_projectedControls, i * 4, ref _rng);
+            _projectedWidths[i] = math.max(2f - Time.frameCount * 0.001f, 0.04f);
+            _colors[i] = _rng.NextFloat3();
+        }
 
         _painter.Draw(_projectedControls, _projectedWidths, _colors);
+    }
+
+    private static void SampleCurve(NativeArray<float2> c, int idx, ref Rng rng) {
+        c[idx + 0] = new float2((-5f + Time.time * 5f % 15f) + rng.NextFloat(), 5f - (Time.time * 10f % 5f) + rng.NextFloat());
+        c[idx + 1] = c[idx + 0] + new float2(rng.NextFloat(-1, 1f), rng.NextFloat(-0f, 2f));
+        c[idx + 2] = c[idx + 1] + new float2(rng.NextFloat(-1, 1f), rng.NextFloat(-0f, 2f));
+        c[idx + 3] = c[idx + 2] + new float2(rng.NextFloat(-1, 1f), rng.NextFloat(-0f, 2f));
     }
 
     private void OnDrawGizmos() {
@@ -127,7 +144,6 @@ public class Modeler : MonoBehaviour {
                 pPrev = p;
             }    
         }
-        
     }
 
     private void DrawProjectedSplines() {
@@ -178,8 +194,8 @@ public class Modeler : MonoBehaviour {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
                     var p = o + new float3(
-                        math.cos(time * 1.5f + idx * 1f) * 5f,
-                        math.sin(time * 1.5f + idx * 1f) * 5f,
+                        math.cos(time * 1.5f + idx * 1f) * 10f,
+                        math.sin(time * 1.5f + idx * 1f) * 10f,
                         0.1f * idx);
 
                     // var p = new float3(i * 2, j * 2f, 1f);
@@ -187,7 +203,8 @@ public class Modeler : MonoBehaviour {
                     controlPoints[idx] = p;
                 }
 
-                widths[i] = 0.3f;
+                widths[i] = rng.NextFloat();
+                widths[i] *= widths[i];
                 colors[i] = new float3(0.5f) + 0.5f * new float3(i * 0.07f % 1f, i * 0.063f % 1f, i * 0.047f % 1f);
             }
         }
