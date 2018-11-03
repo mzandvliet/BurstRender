@@ -8,6 +8,9 @@ using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
+using Curve2d = Unity.Collections.NativeArray<Unity.Mathematics.float2>;
+using Curve3d = Unity.Collections.NativeArray<Unity.Mathematics.float3>;
+
 /* 
     Todo:
 
@@ -27,27 +30,27 @@ public class Modeler : MonoBehaviour {
 
     private Camera _camera;
 
-    private NativeArray<float3> _controls;
+    private Curve3d _controls;
     
     private NativeArray<float> _widths;
 
-    private NativeArray<float2> _projectedControls;
+    private Curve2d _projectedControls;
     private NativeArray<float> _projectedWidths;
     private NativeArray<float3> _colors;
 
     private Rng _rng;
 
-    private const int NUM_CURVES = 4;
+    private const int NUM_CURVES = 128;
     private const int CONTROLS_PER_CURVE = 4;
 
     private void Awake() {
         _camera = gameObject.GetComponent<Camera>();
         _camera.enabled = true;
 
-        _controls = new NativeArray<float3>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
+        _controls = new Curve3d(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _widths = new NativeArray<float>(NUM_CURVES, Allocator.Persistent);
 
-        _projectedControls = new NativeArray<float2>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
+        _projectedControls = new Curve2d(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _projectedWidths = new NativeArray<float>(NUM_CURVES, Allocator.Persistent);
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
 
@@ -78,31 +81,35 @@ public class Modeler : MonoBehaviour {
 
         //_painter.Clear();
 
-        // var cj = new GenerateSpiralJob();
-        // cj.time = Time.frameCount * 0.01f;
-        // cj.rng = new Rng((uint)_rng.NextInt());
-        // cj.controlPoints = _controls;
-        // cj.widths = _widths;
-        // cj.colors = _colors;
-        // h = cj.Schedule();
+        var cj = new GenerateSpiralJob();
+        cj.time = Time.frameCount * 0.01f;
+        cj.rng = new Rng((uint)_rng.NextInt());
+        cj.controlPoints = _controls;
+        cj.widths = _widths;
+        cj.colors = _colors;
+        h = cj.Schedule();
 
-        // var pj = new ProjectCurvesJob();
-        // pj.mat = math.mul(_camera.projectionMatrix, _camera.worldToCameraMatrix);
-        // pj.controlPoints = _controls;
-        // pj.widths = _widths;
-        // pj.projectedControls = _projectedControls;
-        // pj.projectedWidths = _projectedWidths;
-        // h = pj.Schedule(h);
+        var pj = new ProjectCurvesJob();
+        pj.mat = math.mul(_camera.projectionMatrix, _camera.worldToCameraMatrix);
+        pj.controlPoints = _controls;
+        pj.widths = _widths;
+        pj.projectedControls = _projectedControls;
+        pj.projectedWidths = _projectedWidths;
+        h = pj.Schedule(h);
 
-        // h.Complete();
+        h.Complete();
 
-        for (int i = 0; i < _projectedControls.Length/4; i++) {
-            SampleCurve(_projectedControls, i * 4, ref _rng);
-            _projectedWidths[i] = math.max(2f - Time.frameCount * 0.001f, 0.04f);
-            _colors[i] = _rng.NextFloat3();
-        }
+      
 
         _painter.Draw(_projectedControls, _projectedWidths, _colors);
+    }
+
+    private static void GenerateRandomStrokes(NativeArray<float2> controls, NativeArray<float> widths, NativeArray<float3> colors, ref Rng rng) {
+        for (int i = 0; i < controls.Length / 4; i++) {
+            SampleCurve(controls, i * 4, ref rng);
+            widths[i] = math.max(2f - Time.frameCount * 0.001f, 0.04f);
+            colors[i] = rng.NextFloat3();
+        }
     }
 
     private static void SampleCurve(NativeArray<float2> c, int idx, ref Rng rng) {
@@ -179,7 +186,7 @@ public class Modeler : MonoBehaviour {
     private struct GenerateSpiralJob : IJob {
         public Rng rng;
 
-        [NativeDisableParallelForRestriction] public NativeArray<float3> controlPoints;
+        [NativeDisableParallelForRestriction] public Curve3d controlPoints;
         [NativeDisableParallelForRestriction] public NativeArray<float> widths;
         [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
         public float time;
@@ -198,8 +205,6 @@ public class Modeler : MonoBehaviour {
                         math.sin(time * 1.5f + idx * 1f) * 10f,
                         0.1f * idx);
 
-                    // var p = new float3(i * 2, j * 2f, 1f);
-
                     controlPoints[idx] = p;
                 }
 
@@ -213,10 +218,10 @@ public class Modeler : MonoBehaviour {
     private struct ProjectCurvesJob : IJob {
         [ReadOnly] public float4x4 mat;
 
-        [ReadOnly] public NativeArray<float3> controlPoints;
+        [ReadOnly] public Curve3d controlPoints;
         [ReadOnly] public NativeArray<float> widths;
 
-        public NativeArray<float2> projectedControls;
+        public Curve2d projectedControls;
         public NativeArray<float> projectedWidths;
 
         public void Execute() {
