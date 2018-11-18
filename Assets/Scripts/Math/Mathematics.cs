@@ -34,6 +34,10 @@ namespace Ramjet {
             return new Vector3(v.x, v.y, 0f);
         }
 
+        public static Vector3 ToVec3(float2 v, float z) {
+            return new Vector3(v.x, v.y, z);
+        }
+
         public static float3 RandomInUnitDisk(ref Random rng) {
             float theta = rng.NextFloat() * Tau;
             float r = math.sqrt(rng.NextFloat());

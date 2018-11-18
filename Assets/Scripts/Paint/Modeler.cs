@@ -40,7 +40,7 @@ public class Modeler : MonoBehaviour {
 
     private Rng _rng;
 
-    private const int NUM_CURVES = 128;
+    private const int NUM_CURVES = 8;
     private const int CONTROLS_PER_CURVE = 4;
 
     private void Awake() {
@@ -194,23 +194,18 @@ public class Modeler : MonoBehaviour {
         public void Execute() {
             int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
 
-            float3 o = new float3(0, 0, 5);
-
             for (int i = 0; i < numCurves; i++) {
+                var p = new float3(0f,0f, 3f) + rng.NextFloat3() * 20f;
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
-                    var p = o + new float3(
-                        math.cos(time * 1.5f + idx * 1f) * 10f,
-                        math.sin(time * 1.5f + idx * 1f) * 10f,
-                        0.1f * idx);
+                    p += -1f + 2f * rng.NextFloat3();
 
                     controlPoints[idx] = p;
                 }
 
-                widths[i] = rng.NextFloat();
-                widths[i] *= widths[i];
-                colors[i] = new float3(0.5f) + 0.5f * new float3(i * 0.07f % 1f, i * 0.063f % 1f, i * 0.047f % 1f);
+                widths[i] = 0.05f + 0.15f * rng.NextFloat();
+                colors[i] = rng.NextFloat3() * (0.95f - 0.4f / p.z);
             }
         }
     }

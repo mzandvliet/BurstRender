@@ -12,6 +12,27 @@ public static class BDCCubic3d {
         return math.lerp(math.lerp(math.lerp(c[0], c[1], t), bc, t), math.lerp(bc, math.lerp(c[2], c[3], t), t), t);
     }
 
+    public static void Split(NativeArray<float3> o, in float t, NativeArray<float3> left, NativeArray<float3> right) {
+        float3 ab = math.lerp(o[0], o[1], t);
+        float3 bc = math.lerp(o[1], o[2], t);
+        float3 cd = math.lerp(o[2], o[3], t);
+
+        float3 abbc = math.lerp(ab, bc, t);
+        float3 bccd = math.lerp(bc, cd, t);
+
+        float3 p = math.lerp(abbc, bccd, t);
+
+        left[0] = o[0];
+        left[1] = ab;
+        left[2] = abbc;
+        left[3] = p;
+
+        right[0] = p;
+        right[1] = bccd;
+        right[2] = cd;
+        right[3] = o[3];
+    }
+
     public static float3 Get(NativeArray<float3> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
