@@ -117,7 +117,7 @@ public class HomogeneousProjection : MonoBehaviour {
         }
 
         Gizmos.color = Color.white;
-        var pPrev = Math.ToVec3(BDCCubic2d.Get(_curve2d, 1f));
+        var pPrev = Math.ToVec3(BDCCubic2d.Get(_curve2d, 0f));
         Gizmos.DrawSphere(pPrev, 0.01f);
         int steps = 16;
         for (int i = 1; i <= steps; i++) {

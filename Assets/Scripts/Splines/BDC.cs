@@ -181,6 +181,17 @@ public static class BDCCubic2d {
             c[3] * (t2 * t);
     }
 
+    public static float2 Get(NativeArray<float2> c, NativeArray<float> w, in float t) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        return
+            c[0] * w[0] * (omt2 * omt) +
+            c[1] * w[1] * (3f * omt2 * t) +
+            c[2] * w[2] * (3f * omt * t2) +
+            c[3] * w[3] * (t2 * t);
+    }
+
     public static float2 GetAt(NativeArray<float2> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
@@ -385,6 +396,25 @@ public static class BDCQuadratic2d {
     public static float2 Get(in float2 a, in float2 b, in float2 c, in float t) {
         float2 u = 1f - t;
         return u * u * a + 2f * t * u * b + t * t * c;
+    }
+
+    public static float2 Get(NativeArray<float2> c, NativeArray<float> w, in float t) {
+        float u = 1f - t;
+        float t2 = t * t;
+        return
+            c[0] * w[0] * (u * u) +
+            c[1] * w[1] * (2f * t * u) +
+            c[2] * w[2] * t2;
+    }
+
+    public static float2 GetAt(NativeArray<float2> c, NativeArray<float> w, in float t, int idx) {
+        float u = 1f - t;
+        float t2 = t * t;
+        idx *= 3;
+        return
+            c[idx + 0] * w[idx + 0] * (u * u) +
+            c[idx + 1] * w[idx + 1] * (2f * t * u) +
+            c[idx + 2] * w[idx + 2] * t2;
     }
 
     public static float LengthEuclidean(in float2 a, in float2 b, in float2 c, in int steps) {
