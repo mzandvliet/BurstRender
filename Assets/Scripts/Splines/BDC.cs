@@ -407,16 +407,6 @@ public static class BDCQuadratic2d {
             c[2] * w[2] * t2;
     }
 
-    public static float2 GetAt(NativeArray<float2> c, NativeArray<float> w, in float t, int idx) {
-        float u = 1f - t;
-        float t2 = t * t;
-        idx *= 3;
-        return
-            c[idx + 0] * w[idx + 0] * (u * u) +
-            c[idx + 1] * w[idx + 1] * (2f * t * u) +
-            c[idx + 2] * w[idx + 2] * t2;
-    }
-
     public static float LengthEuclidean(in float2 a, in float2 b, in float2 c, in int steps) {
         float dist = 0;
 
