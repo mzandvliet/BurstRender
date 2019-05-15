@@ -14,6 +14,10 @@ using Curve3d = Unity.Collections.NativeArray<Unity.Mathematics.float3>;
 /* 
     Todo:
 
+    - In this system as well: fix the error where we're first dividing by w and
+    then interpolating. We need to interpolate and perspective divide the resulting
+    point.
+
     - Make splines out of curves
     - Make oriented patches out of curves
     - When part of a spline falls outside of frustum, it needs to be cut off, or culled?

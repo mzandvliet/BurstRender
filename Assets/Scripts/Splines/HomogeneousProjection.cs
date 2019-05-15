@@ -8,8 +8,33 @@ using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
-// Hah, projection of the curves from 3d to 2d, at least isometrically, is trivial!
-// Just project the control points and you're done.
+/*
+    Edit: Note that all of the below code is wrong, and I didn't know what I was doing
+
+    Proper steps:
+
+    - Premultiply cameraProject * cameraView matrices
+    - Formulate all 3d-space control points as homogeneous, tagging on w = 1
+    - Project the 4d points using mat.
+    - Make 3d vecs [x,y,w], evaluate that as 3d bezier
+    - Resulting 2d screen point is [x/w, y/w]
+    - Render that point sequence
+    - Can later also store Z for rendering depth-aware stroke effects
+
+    A proper test for verification:
+    - Render 3d line using 3d piecewise linear line drawing
+    - Rendering projected rational using 2 piecewise linear line drawin
+    These two approaches should overlap, be approx the same render.
+
+    If you want to do things like create a perfect 3d sphere out of 8 triangular/
+    quadratic bezier patches, each of those needs to be rational, meaning it will
+    have [x,y,z,w] with non-unit w values for the middle control points. Note
+    additionally that you *could* construct those by first projecting a 5d
+    regular patch into 4d rational patch, which you can then further project into
+    a 2d rational, after which you divide b z in order to get screen-space point?
+
+    Hah.
+ */
 
 public class HomogeneousProjection : MonoBehaviour {
     [SerializeField] private Camera _camera;
@@ -28,22 +53,7 @@ public class HomogeneousProjection : MonoBehaviour {
         Generate3dCurve();
     }
 
-    private void Generate3dCurve() {
-        float3 p = new float3(0, 0, 5);
-        for (int i = 0; i < _curve3d.Length; i++) {
-            _curve3d[i] = p;
-            p += _rng.NextFloat3Direction() * (2f / (float)(1 + i));
-        }
-    }
-
-    private void ProjectCurve() {
-        var worldToCam = (float4x4)_camera.worldToCameraMatrix;
-        Debug.Log(worldToCam);
-        for (int i = 0; i < _curve3d.Length; i++) {
-            var camPos = math.mul(worldToCam, new float4(_curve3d[i].x,_curve3d[i].y, _curve3d[i].z, 1f));
-            _curve2d[i] = new float2(camPos.x, camPos.y) / camPos.z;
-        }
-    }
+    
 
     private void OnDestroy() {
         _curve3d.Dispose();
@@ -67,6 +77,22 @@ public class HomogeneousProjection : MonoBehaviour {
         Draw3dCurve();
         Draw2dCurve();
         DrawPerspectiveLines();
+    }
+
+    private void Generate3dCurve() {
+        float3 p = new float3(0, 0, 5);
+        for (int i = 0; i < _curve3d.Length; i++) {
+            _curve3d[i] = p;
+            p += _rng.NextFloat3Direction() * (2f / (float)(1 + i));
+        }
+    }
+
+    private void ProjectCurve() {
+        var worldToCam = (float4x4)_camera.worldToCameraMatrix; //wrong
+        for (int i = 0; i < _curve3d.Length; i++) {
+            var camPos = math.mul(worldToCam, new float4(_curve3d[i].x, _curve3d[i].y, _curve3d[i].z, 1f));
+            _curve2d[i] = new float2(camPos.x, camPos.y) / camPos.z; // wrong, save divide until last
+        }
     }
 
     private void DrawPerspectiveLines() {

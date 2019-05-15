@@ -8,9 +8,12 @@ using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
-// Drawing a circle with 4 quadratic rational bezier segments,
-// initialized by hand.
-// Todo: expand this with camera project, homogeneous coordinates
+/*
+    Drawing a circle with 4 quadratic rational bezier segments,
+    initialized by hand.
+
+    Todo: expand this with camera project, homogeneous coordinates
+ */
 
 public class RationalBezier : MonoBehaviour {
     [SerializeField] private Camera _camera;

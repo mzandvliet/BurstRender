@@ -5,6 +5,24 @@ using Unity.Collections;
 using Unity.Mathematics;
 using Rng = Unity.Mathematics.Random;
 
+/*
+    Todo:
+    - Generate functions using Berstein Polynomial expansion
+    - Use NativeSlice to better encapsulate multiple curves
+    in a single Array?
+    - Proper support for regular -> rational curves
+
+
+    Use a code-generation script. C# doesn't have preprocessor
+    or macro functionality, and yet we want to quickly write
+    code that works with 1 to n dimensional control points.
+
+    Also, since the patterns for higher order curves are 
+    elegantly expressed through algebra, we could generate
+    code for the basis functions quite well.
+
+ */
+
 // Borrowing from: https://www.youtube.com/watch?v=o9RK6O2kOKo
 public static class BDCCubic3d {
     public static float3 GetCasteljau(NativeArray<float3> c, in float t) {
