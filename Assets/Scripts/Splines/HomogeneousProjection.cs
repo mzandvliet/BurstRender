@@ -9,22 +9,21 @@ using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
 /*
-    Edit: Note that all of the below code is wrong, and I didn't know what I was doing
-
-    Proper steps:
+    Steps are roughly:
 
     - Premultiply cameraProject * cameraView matrices
     - Formulate all 3d-space control points as homogeneous, tagging on w = 1
     - Project the 4d points using mat.
-    - Make 3d vecs [x,y,w], evaluate that as 3d bezier
-    - Resulting 2d screen point is [x/w, y/w]
-    - Render that point sequence
+    - Evaluate resulting rational 2d curve [x,y,w] as a 3d bezier
+    - Resulting 2d screen point can be perspective divided: [x/w, y/w]
+    - Render that point sequence using a linear line drawing algorithm
     - Can later also store Z for rendering depth-aware stroke effects
 
     A proper test for verification:
     - Render 3d line using 3d piecewise linear line drawing
     - Rendering projected rational using 2 piecewise linear line drawin
     These two approaches should overlap, be approx the same render.
+    Edit: They do!
 
     If you want to do things like create a perfect 3d sphere out of 8 triangular/
     quadratic bezier patches, each of those needs to be rational, meaning it will
@@ -53,8 +52,6 @@ public class HomogeneousProjection : MonoBehaviour {
 
         Generate3dCurve();
     }
-
-    
 
     private void OnDestroy() {
         _curve3dHom.Dispose();
@@ -128,21 +125,15 @@ public class HomogeneousProjection : MonoBehaviour {
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)(steps);
             float3 p = Util.HomogeneousNormalize(BDCCubic4d.Get(_curve3dHom, t));
-            // float3 tg = BDCCubic3d.GetTangent(_curve3dHom, t);
-            // float3 n = BDCCubic3d.GetNormal(_curve3dHom, t, new float3(0, 1, 0));
+
             Gizmos.DrawLine(pPrev, p);
             Gizmos.DrawSphere(p, 0.01f);
-
-            // Gizmos.color = Color.blue;
-            // Gizmos.DrawRay(p, n * 0.3f);
-            // Gizmos.DrawRay(p, -n * 0.3f);
-            // Gizmos.color = Color.green;
-            // Gizmos.DrawRay(p, tg);
 
             pPrev = p;
         }
     }
 
+    // Draw projected rational 2d spline using piecewise linear lines in screenspace
     void OnPostRender() {
         if (!_lineMaterial) {
             Debug.LogError("Please Assign a material on the inspector");
@@ -154,14 +145,12 @@ public class HomogeneousProjection : MonoBehaviour {
         GL.LoadOrtho();
 
         var pPrev = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, 0f)), 0f);
-        pPrev = new float3(0.5f, 0.5f, 0f) + pPrev * 0.5f;
+        pPrev = new float3(0.5f, 0.5f, 0f) + pPrev * 0.5f; // from NDC to screenspace
         int steps = 16;
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)(steps - 1);
             var p = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, t)), 0f);
-            p = new float3(0.5f, 0.5f, 0f) + p * 0.5f;
-
-            Debug.Log(p);
+            p = new float3(0.5f, 0.5f, 0f) + p * 0.5f;  // from NDC to screenspace
 
             GL.Begin(GL.LINES);
             GL.Color(Color.red);
@@ -174,23 +163,4 @@ public class HomogeneousProjection : MonoBehaviour {
 
         GL.PopMatrix();
     }
-
-    // void OnPostRender() {
-    //     if (!_lineMaterial) {
-    //         Debug.LogError("Please Assign a material on the inspector");
-    //         return;
-    //     }
-
-    //     GL.PushMatrix();
-    //     _lineMaterial.SetPass(0);
-    //     GL.LoadOrtho();
-
-    //     GL.Begin(GL.LINES);
-    //     GL.Color(Color.red);
-    //     GL.Vertex(new Vector3(0.5f, 0.5f, 0f));
-    //     GL.Vertex(new Vector3(1.0f, 1.0f, 0));
-    //     GL.End();
-
-    //     GL.PopMatrix();
-    // }
 }
