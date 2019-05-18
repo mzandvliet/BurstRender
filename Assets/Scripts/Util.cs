@@ -21,4 +21,12 @@ public static class Util {
             System.IO.Path.Combine(folder, string.Format("render_{0}.png", System.DateTime.Now.ToFileTimeUtc())),
             bytes);
     }
+
+    public static float3 HomogeneousNormalize(float4 v) {
+        return new float3(v.x / v.w, v.y / v.w, v.z / v.w);
+    }
+
+    public static float2 HomogeneousNormalize(float3 v) {
+        return new float2(v.x / v.z, v.y / v.z);
+    }
 }

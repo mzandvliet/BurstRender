@@ -37,17 +37,18 @@ using System.Runtime.InteropServices;
  */
 
 public class HomogeneousProjection : MonoBehaviour {
+    [SerializeField] private Material _lineMaterial;
     [SerializeField] private Camera _camera;
-    private NativeArray<float3> _curve3d;
-    private NativeArray<float2> _curve2d;
+    private NativeArray<float4> _curve3dHom;
+    private NativeArray<float3> _curve2dRat;
     private Rng _rng;
 
     private const int NUM_CURVES = 1;
     private const int CONTROLS_PER_CURVE = 4;
 
     private void Awake() {
-        _curve3d = new NativeArray<float3>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
-        _curve2d = new NativeArray<float2>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
+        _curve3dHom = new NativeArray<float4>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
+        _curve2dRat = new NativeArray<float3>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _rng = new Rng(1234);
 
         Generate3dCurve();
@@ -56,8 +57,8 @@ public class HomogeneousProjection : MonoBehaviour {
     
 
     private void OnDestroy() {
-        _curve3d.Dispose();
-        _curve2d.Dispose();
+        _curve3dHom.Dispose();
+        _curve2dRat.Dispose();
     }
 
     private JobHandle _handle;
@@ -75,82 +76,60 @@ public class HomogeneousProjection : MonoBehaviour {
         }
 
         Draw3dCurve();
-        Draw2dCurve();
         DrawPerspectiveLines();
     }
 
     private void Generate3dCurve() {
-        float3 p = new float3(0, 0, 5);
-        for (int i = 0; i < _curve3d.Length; i++) {
-            _curve3d[i] = p;
-            p += _rng.NextFloat3Direction() * (2f / (float)(1 + i));
+        float4 p = new float4(0, 0, 7, 1);
+        for (int i = 0; i < _curve3dHom.Length; i++) {
+            _curve3dHom[i] = p;
+            p += new float4(_rng.NextFloat3Direction() * (4f / (float)(1 + i)), 1f);
         }
     }
 
     private void ProjectCurve() {
-        var worldToCam = (float4x4)_camera.worldToCameraMatrix; //wrong
-        for (int i = 0; i < _curve3d.Length; i++) {
-            var camPos = math.mul(worldToCam, new float4(_curve3d[i].x, _curve3d[i].y, _curve3d[i].z, 1f));
-            _curve2d[i] = new float2(camPos.x, camPos.y) / camPos.z; // wrong, save divide until last
+        var camProj = _camera.projectionMatrix;
+
+        // https://answers.unity.com/questions/12713/how-do-i-reproduce-the-mvp-matrix.html
+        // for (int i = 0; i < 4; i++) {
+        //     camProj[2, i] = camProj[2, i] * 0.5f + camProj[3, i] * 0.5f;
+        // }
+
+        var camMat = camProj * _camera.worldToCameraMatrix;
+
+        for (int i = 0; i < _curve3dHom.Length; i++) {
+            var screenPos = camMat * _curve3dHom[i];
+            _curve2dRat[i] = new float3(screenPos.x, screenPos.y, screenPos.w);
         }
     }
 
     private void DrawPerspectiveLines() {
         Gizmos.color = Color.gray;
         int steps = 16;
-        for (int i = 1; i <= steps; i++) {
+        for (int i = 0; i <= steps; i++) {
             float t = i / (float)(steps);
-            float3 p3 = BDCCubic3d.Get(_curve3d, t);
-            // float2 p2d = BDCCubic2d.Get(_curve2d, t);
-            // float3 p2 = new float3(p2d.x, p2d.y, 1f);
-            float3 p2 = new float3(0f);
-            Gizmos.DrawLine(p2, p3);
+            float3 p = Util.HomogeneousNormalize(BDCCubic4d.Get(_curve3dHom, t));
+            Gizmos.DrawLine(_camera.transform.position, p);
         }
     }
 
     private void Draw3dCurve() {
         Gizmos.color = Color.blue;
-        for (int i = 0; i < _curve3d.Length; i++) {
-            Gizmos.DrawSphere(_curve3d[i], 0.05f);
+        for (int i = 0; i < _curve3dHom.Length; i++) {
+            var p = Util.HomogeneousNormalize(_curve3dHom[i]);
+            Gizmos.DrawSphere(p, 0.03f);
+            Gizmos.DrawLine(_camera.transform.position, p);
         }
 
         Gizmos.color = Color.white;
-        float3 pPrev = BDCCubic3d.Get(_curve3d, 0f);
+        float3 pPrev = Util.HomogeneousNormalize(BDCCubic4d.Get(_curve3dHom, 0f));
         Gizmos.DrawSphere(pPrev, 0.01f);
         int steps = 16;
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)(steps);
-            float3 p = BDCCubic3d.Get(_curve3d, t);
-            float3 tg = BDCCubic3d.GetTangent(_curve3d, t);
-            float3 n = BDCCubic3d.GetNormal(_curve3d, t, new float3(0, 1, 0));
-            Gizmos.DrawLine(pPrev, p);
-            Gizmos.DrawSphere(p, 0.01f);
-
-            Gizmos.color = Color.blue;
-            Gizmos.DrawRay(p, n * 0.3f);
-            Gizmos.DrawRay(p, -n * 0.3f);
-            Gizmos.color = Color.green;
-            Gizmos.DrawRay(p, tg);
-
-            pPrev = p;
-        }
-    }
-
-    private void Draw2dCurve() {
-        Gizmos.color = Color.blue;
-        for (int i = 0; i < _curve2d.Length; i++) {
-            Gizmos.DrawSphere(Math.ToVec3(_curve2d[i]), 0.05f);
-        }
-
-        Gizmos.color = Color.white;
-        var pPrev = Math.ToVec3(BDCCubic2d.Get(_curve2d, 0f));
-        Gizmos.DrawSphere(pPrev, 0.01f);
-        int steps = 16;
-        for (int i = 1; i <= steps; i++) {
-            float t = i / (float)(steps-1);
-            var p = Math.ToVec3(BDCCubic2d.Get(_curve2d, t), 1f);
-            var tg = Math.ToVec3(BDCCubic2d.GetTangent(_curve2d, t));
-            var n = Math.ToVec3(BDCCubic2d.GetNormal(_curve2d, t));
+            float3 p = Util.HomogeneousNormalize(BDCCubic4d.Get(_curve3dHom, t));
+            // float3 tg = BDCCubic3d.GetTangent(_curve3dHom, t);
+            // float3 n = BDCCubic3d.GetNormal(_curve3dHom, t, new float3(0, 1, 0));
             Gizmos.DrawLine(pPrev, p);
             Gizmos.DrawSphere(p, 0.01f);
 
@@ -163,4 +142,55 @@ public class HomogeneousProjection : MonoBehaviour {
             pPrev = p;
         }
     }
+
+    void OnPostRender() {
+        if (!_lineMaterial) {
+            Debug.LogError("Please Assign a material on the inspector");
+            return;
+        }
+
+        GL.PushMatrix();
+        _lineMaterial.SetPass(0);
+        GL.LoadOrtho();
+
+        var pPrev = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, 0f)), 0f);
+        pPrev = new float3(0.5f, 0.5f, 0f) + pPrev * 0.5f;
+        int steps = 16;
+        for (int i = 1; i <= steps; i++) {
+            float t = i / (float)(steps - 1);
+            var p = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, t)), 0f);
+            p = new float3(0.5f, 0.5f, 0f) + p * 0.5f;
+
+            Debug.Log(p);
+
+            GL.Begin(GL.LINES);
+            GL.Color(Color.red);
+            GL.Vertex(pPrev);
+            GL.Vertex(p);
+            GL.End();            
+
+            pPrev = p;
+        }
+
+        GL.PopMatrix();
+    }
+
+    // void OnPostRender() {
+    //     if (!_lineMaterial) {
+    //         Debug.LogError("Please Assign a material on the inspector");
+    //         return;
+    //     }
+
+    //     GL.PushMatrix();
+    //     _lineMaterial.SetPass(0);
+    //     GL.LoadOrtho();
+
+    //     GL.Begin(GL.LINES);
+    //     GL.Color(Color.red);
+    //     GL.Vertex(new Vector3(0.5f, 0.5f, 0f));
+    //     GL.Vertex(new Vector3(1.0f, 1.0f, 0));
+    //     GL.End();
+
+    //     GL.PopMatrix();
+    // }
 }

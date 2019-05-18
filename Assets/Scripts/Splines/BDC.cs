@@ -24,6 +24,145 @@ using Rng = Unity.Mathematics.Random;
  */
 
 // Borrowing from: https://www.youtube.com/watch?v=o9RK6O2kOKo
+
+public static class BDCCubic4d {
+    public static float4 GetCasteljau(NativeArray<float4> c, in float t) {
+        float4 bc = math.lerp(c[1], c[2], t);
+        return math.lerp(math.lerp(math.lerp(c[0], c[1], t), bc, t), math.lerp(bc, math.lerp(c[2], c[3], t), t), t);
+    }
+
+    public static void Split(NativeArray<float4> o, in float t, NativeArray<float4> left, NativeArray<float4> right) {
+        float4 ab = math.lerp(o[0], o[1], t);
+        float4 bc = math.lerp(o[1], o[2], t);
+        float4 cd = math.lerp(o[2], o[3], t);
+
+        float4 abbc = math.lerp(ab, bc, t);
+        float4 bccd = math.lerp(bc, cd, t);
+
+        float4 p = math.lerp(abbc, bccd, t);
+
+        left[0] = o[0];
+        left[1] = ab;
+        left[2] = abbc;
+        left[3] = p;
+
+        right[0] = p;
+        right[1] = bccd;
+        right[2] = cd;
+        right[3] = o[3];
+    }
+
+    public static float4 Get(NativeArray<float4> c, in float t) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        return
+            c[0] * (omt2 * omt) +
+            c[1] * (3f * omt2 * t) +
+            c[2] * (3f * omt * t2) +
+            c[3] * (t2 * t);
+    }
+
+    public static float4 GetAt(NativeArray<float4> c, in float t, int idx) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        idx *= 4;
+        return
+            c[idx + 0] * (omt2 * omt) +
+            c[idx + 1] * (3f * omt2 * t) +
+            c[idx + 2] * (3f * omt * t2) +
+            c[idx + 3] * (t2 * t);
+    }
+
+    public static float4 GetTangent(NativeArray<float4> c, in float t) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        return math.normalize(
+            c[0] * (-omt2) +
+            c[1] * (3f * omt2 - 2f * omt) +
+            c[2] * (-3f * t2 + 2f * t) +
+            c[3] * (t2)
+        );
+    }
+
+    public static float4 GetNonUnitTangent(NativeArray<float4> c, in float t) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        return
+            c[0] * (-omt2) +
+            c[1] * (3f * omt2 - 2f * omt) +
+            c[2] * (-3f * t2 + 2f * t) +
+            c[3] * (t2);
+    }
+
+    public static float4 GetTangentAt(NativeArray<float4> c, in float t, int idx) {
+        float omt = 1f - t;
+        float omt2 = omt * omt;
+        float t2 = t * t;
+        idx *= 4;
+        return math.normalize(
+            c[idx + 0] * (-omt2) +
+            c[idx + 1] * (3f * omt2 - 2f * omt) +
+            c[idx + 2] * (-3f * t2 + 2f * t) +
+            c[idx + 3] * (t2)
+        );
+    }
+
+    public static float Length(NativeArray<float4> c, in int steps) {
+        float dist = 0;
+
+        float4 pPrev = c[0];
+        for (int i = 1; i <= steps; i++) {
+            float t = i / (float)steps;
+            float4 p = Get(c, t);
+            dist += math.length(p - pPrev);
+            pPrev = p;
+        }
+
+        return dist;
+    }
+
+    public static float Length(NativeArray<float4> c, in int steps, in float t) {
+        float dist = 0;
+
+        float4 pPrev = c[0];
+        for (int i = 1; i <= steps; i++) {
+            float tNow = t * (i / (float)steps);
+            float4 p = Get(c, tNow);
+            dist += math.length(p - pPrev);
+            pPrev = p;
+        }
+
+        return dist;
+    }
+
+    public static float Length(NativeArray<float> distances, float t) {
+        t = t * (float)(distances.Length - 1);
+        int ti = (int)math.floor(t);
+        if (ti >= distances.Length - 1) {
+            return distances[distances.Length - 1];
+        }
+        return math.lerp(distances[ti], distances[ti + 1], t - (float)ti);
+    }
+
+    // Instead of storing at linear t spacing, why not store with non-linear t-spacing and lerp between them
+    public static void CacheDistancesAt(NativeArray<float4> c, NativeArray<float> outDistances) {
+        float dist = 0;
+        outDistances[0] = 0f;
+        float4 pPrev = c[0];
+        for (int i = 1; i < outDistances.Length; i++) {
+            float t = i / (float)(outDistances.Length - 1);
+            float4 p = Get(c, t);
+            dist += math.length(p - pPrev);
+            outDistances[i] = dist;
+            pPrev = p;
+        }
+    }
+}
+
 public static class BDCCubic3d {
     public static float3 GetCasteljau(NativeArray<float3> c, in float t) {
         float3 bc = math.lerp(c[1], c[2], t);
