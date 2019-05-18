@@ -1,8 +1,44 @@
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
+using Unity.Collections.LowLevel.Unsafe;
 
 public static class Util {
+    public static unsafe void Copy(Vector3[] destination, NativeArray<float3> source) {
+        fixed (void* vertexArrayPointer = destination) {
+            UnsafeUtility.MemCpy(
+                vertexArrayPointer,
+                NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                destination.Length * (long)UnsafeUtility.SizeOf<float3>());
+        }
+    }
+
+    public static unsafe void Copy(Color[] destination, NativeArray<float4> source) {
+        fixed (void* vertexArrayPointer = destination) {
+            UnsafeUtility.MemCpy(
+                vertexArrayPointer,
+                NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                destination.Length * (long)UnsafeUtility.SizeOf<float4>());
+        }
+    }
+
+    public static unsafe void Copy(Vector2[] destination, NativeArray<float2> source) {
+        fixed (void* vertexArrayPointer = destination) {
+            UnsafeUtility.MemCpy(
+                vertexArrayPointer,
+                NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                destination.Length * (long)UnsafeUtility.SizeOf<float2>());
+        }
+    }
+
+    public static unsafe void Copy(int[] destination, NativeArray<int> source) {
+        fixed (void* vertexArrayPointer = destination) {
+            UnsafeUtility.MemCpy(
+                vertexArrayPointer,
+                NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
+                destination.Length * (long)UnsafeUtility.SizeOf<int>());
+        }
+    }
     public static void ToTexture2D(NativeArray<float3> screen, Texture2D tex, int2 resolution) {
         Color[] colors = new Color[screen.Length];
 
@@ -28,5 +64,9 @@ public static class Util {
 
     public static float2 HomogeneousNormalize(float3 v) {
         return new float2(v.x / v.z, v.y / v.z);
+    }
+
+    public static Vector3 ToVec3(float2 p) {
+        return new Vector3(p.x, p.y, 0f);
     }
 }

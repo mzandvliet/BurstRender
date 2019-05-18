@@ -8,7 +8,6 @@ using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
-using Curve2d = Unity.Collections.NativeArray<Unity.Mathematics.float2>;
 using Curve3d = Unity.Collections.NativeArray<Unity.Mathematics.float3>;
 
 /* 
@@ -27,6 +26,8 @@ using Curve3d = Unity.Collections.NativeArray<Unity.Mathematics.float3>;
     make compositions
 
     Render grandfather's painting
+
+    Explore the generalized notion of the B-Spline Curve
  */
 
 public class Modeler : MonoBehaviour {
@@ -38,7 +39,7 @@ public class Modeler : MonoBehaviour {
     
     private NativeArray<float> _widths;
 
-    private Curve2d _projectedControls;
+    private Curve3d _projectedControls;
     private NativeArray<float> _projectedWidths;
     private NativeArray<float3> _colors;
 
@@ -54,7 +55,7 @@ public class Modeler : MonoBehaviour {
         _controls = new Curve3d(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _widths = new NativeArray<float>(NUM_CURVES, Allocator.Persistent);
 
-        _projectedControls = new Curve2d(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
+        _projectedControls = new Curve3d(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
         _projectedWidths = new NativeArray<float>(NUM_CURVES, Allocator.Persistent);
         _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
 
@@ -83,7 +84,7 @@ public class Modeler : MonoBehaviour {
     private void Paint() {
         var h = new JobHandle();
 
-        //_painter.Clear();
+        _painter.Clear();
 
         var cj = new GenerateSpiralJob();
         cj.time = Time.frameCount * 0.01f;
@@ -94,7 +95,7 @@ public class Modeler : MonoBehaviour {
         h = cj.Schedule();
 
         var pj = new ProjectCurvesJob();
-        pj.mat = math.mul(_camera.projectionMatrix, _camera.worldToCameraMatrix);
+        pj.mat = _camera.projectionMatrix * _camera.worldToCameraMatrix;
         pj.controlPoints = _controls;
         pj.widths = _widths;
         pj.projectedControls = _projectedControls;
@@ -129,7 +130,6 @@ public class Modeler : MonoBehaviour {
         }
         
         Draw3dSplines();
-        // DrawProjectedSplines();
     }
 
     private void Draw3dSplines() {
@@ -157,32 +157,6 @@ public class Modeler : MonoBehaviour {
         }
     }
 
-    private void DrawProjectedSplines() {
-        for (int c = 0; c < NUM_CURVES; c++) {
-            Gizmos.color = Color.white;
-            float3 pPrev = ToFloat3(BDCCubic2d.GetAt(_projectedControls, 0f, c));
-            Gizmos.DrawSphere(pPrev, 0.01f);
-            int steps = 16;
-            for (int i = 1; i <= steps; i++) {
-                float t = i / (float)(steps);
-                float3 p = ToFloat3(BDCCubic2d.GetAt(_projectedControls, t, c));
-                float3 tg = ToFloat3(BDCCubic2d.GetTangentAt(_projectedControls, t, c));
-                float3 n = ToFloat3(BDCCubic2d.GetNormalAt(_projectedControls, t, c));
-                Gizmos.DrawLine(pPrev, p);
-                Gizmos.DrawSphere(p, 0.03f);
-
-                // Gizmos.color = Color.blue;
-                // Gizmos.DrawRay(p, n * 0.3f);
-                // Gizmos.DrawRay(p, -n * 0.3f);
-                // Gizmos.color = Color.green;
-                // Gizmos.DrawRay(p, tg);
-
-                pPrev = p;
-            }
-        }
-        
-    }
-
     private static float3 ToFloat3(in float2 v) {
         return new float3(v.x, v.y, 0f);
     }
@@ -197,13 +171,14 @@ public class Modeler : MonoBehaviour {
 
         public void Execute() {
             int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
+            rng.InitState(1234);
 
             for (int i = 0; i < numCurves; i++) {
-                var p = new float3(0f,0f, 3f) + rng.NextFloat3() * 20f;
+                var p = new float3(i,0f, 3f);
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = i * CONTROLS_PER_CURVE + j;
 
-                    p += -1f + 2f * rng.NextFloat3();
+                    p += new float3(0.5f * j, 1f, 0f);
 
                     controlPoints[idx] = p;
                 }
@@ -220,54 +195,21 @@ public class Modeler : MonoBehaviour {
         [ReadOnly] public Curve3d controlPoints;
         [ReadOnly] public NativeArray<float> widths;
 
-        public Curve2d projectedControls;
+        public Curve3d projectedControls;
         public NativeArray<float> projectedWidths;
 
         public void Execute() {
             int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
             for (int c = 0; c < numCurves; c++) {
-                float avgZ = 0;
-                // bool cull = false;
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
                     int idx = c * CONTROLS_PER_CURVE + j;
 
-                    float4 p = new float4(controlPoints[idx].x, controlPoints[idx].y, controlPoints[idx].z, 1);
-                    p = WorldToScreenPoint(p, mat);
-                    projectedControls[idx] = new float2(p.x, p.y);
+                    float4 p = new float4(controlPoints[idx], 1f);
+                    p = math.mul(mat, p);
+                    projectedControls[idx] = new float3(p.x, p.y, p.w);
 
-                    avgZ += p.z;
-
-                    // if (BDCCubic3d.GetNormalAt(controlPoints, j / (float)(CONTROLS_PER_CURVE-1), new float3(0,1,0), c).z > 0f) {
-                    //     cull = true;
-                    // }
                 }
-                avgZ *= 0.25f;
-
-                if (avgZ != 0f) {
-                    projectedWidths[c] = widths[c] / avgZ;
-                } else {
-                    projectedWidths[c] = 0f;
-                }
-                
-                
-                // if (cull) {
-                //     projectedWidths[i] = 0;
-                // } else {
-                //     projectedWidths[i] = widths[i] / avgZ;
-                // }
-                
-            }
-        }
-
-        private static float4 WorldToScreenPoint(float4 p, float4x4 mat) {
-            Vector4 temp = math.mul(mat, p);
-
-            if (temp.w == 0f) {
-                return new float4();
-            } else {
-                temp.x = (temp.x / temp.w);
-                temp.y = (temp.y / temp.w );
-                return new float4(temp.x, temp.y, p.z, 1);
+                projectedWidths[c] = 0.5f;
             }
         }
     }

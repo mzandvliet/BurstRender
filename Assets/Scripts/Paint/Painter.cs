@@ -7,7 +7,6 @@ using Rng = Unity.Mathematics.Random;
 using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
-using Unity.Collections.LowLevel.Unsafe;
 
 public class Painter : MonoBehaviour {
     [SerializeField] private Material _paintMaterial;
@@ -96,7 +95,7 @@ public class Painter : MonoBehaviour {
         Graphics.Blit(_canvasTex, _canvasTex, _blitClearCanvasMaterial);
     }
 
-    public void Draw(NativeArray<float2> curves, NativeArray<float> widths, NativeArray<float3> colors) {
+    public void Draw(NativeArray<float3> curves, NativeArray<float> widths, NativeArray<float3> colors) {
         var tessJob = new TesslateCurvesJob();
         tessJob.controls = curves;
         tessJob.widths = widths;
@@ -153,7 +152,7 @@ public class Painter : MonoBehaviour {
      */
 
     private struct TesslateCurvesJob : IJob {
-        [ReadOnly] public NativeArray<float2> controls;
+        [ReadOnly] public NativeArray<float3> controls;
         [ReadOnly] public NativeArray<float3> colors;
         [ReadOnly] public NativeArray<float> widths;
 
@@ -173,8 +172,16 @@ public class Painter : MonoBehaviour {
                     int idx = c * TESSELATE_VERTICAL + i;
                     float t = i / (float)(TESSELATE_VERTICAL-1);
 
-                    float3 pos = ToFloat3(BDCCubic2d.GetAt(controls, t, c));
-                    float3 edge = ToFloat3(-BDCCubic2d.GetNormalAt(controls, t, c));
+                    float3 pos = new float3(Util.HomogeneousNormalize(BDCCubic3d.GetAt(controls, t, c)), 0f);
+
+                    // Ah shoot! I need to work out Tangent/Normal for rational curves
+                    // We'll hack it together for now by manipulating homogeneous tangent
+                    float3 tangent = BDCCubic3d.GetTangentAt(controls, t, c);
+                    tangent = tangent / tangent.z;
+                    tangent.z = 0f;
+                    tangent = math.normalize(tangent);
+                    float3 edge = ToFloat3(new float2(-tangent.y, tangent.x));
+                    // float3 edge = ToFloat3(-BDCCubic2d.GetNormalAt(controls, t, c));
                     
                     float width = widths[c];
                     edge *= width;
@@ -226,48 +233,5 @@ public class Painter : MonoBehaviour {
                 }
             }
         }
-    }
-
-    public static class Util {
-        public static Vector3 ToVec3(float2 p) {
-            return new Vector3(p.x, p.y, 0f);
-        }
-
-        public static unsafe void Copy(Vector3[] destination, NativeArray<float3> source) {
-            fixed (void* vertexArrayPointer = destination) {
-                UnsafeUtility.MemCpy(
-                    vertexArrayPointer,
-                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
-                    destination.Length * (long)UnsafeUtility.SizeOf<float3>());
-            }
-        }
-
-        public static unsafe void Copy(Color[] destination, NativeArray<float4> source) {
-            fixed (void* vertexArrayPointer = destination) {
-                UnsafeUtility.MemCpy(
-                    vertexArrayPointer,
-                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
-                    destination.Length * (long)UnsafeUtility.SizeOf<float4>());
-            }
-        }
-
-        public static unsafe void Copy(Vector2[] destination, NativeArray<float2> source) {
-            fixed (void* vertexArrayPointer = destination) {
-                UnsafeUtility.MemCpy(
-                    vertexArrayPointer,
-                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
-                    destination.Length * (long)UnsafeUtility.SizeOf<float2>());
-            }
-        }
-
-        public static unsafe void Copy(int[] destination, NativeArray<int> source) {
-            fixed (void* vertexArrayPointer = destination) {
-                UnsafeUtility.MemCpy(
-                    vertexArrayPointer,
-                    NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(source),
-                    destination.Length * (long)UnsafeUtility.SizeOf<int>());
-            }
-        }
-
     }
 }
