@@ -6,6 +6,7 @@ public class Orbit : MonoBehaviour
 {
     [SerializeField] private Vector3 _center;
     [SerializeField] private float _distance;
+    [SerializeField] private float _degreesPerSecond = 45f;
 
 
     // Start is called before the first frame update
@@ -17,6 +18,6 @@ public class Orbit : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        transform.RotateAround(_center, Vector3.up, 10f * Time.deltaTime);
+        transform.RotateAround(_center, Vector3.up, _degreesPerSecond * Time.deltaTime);
     }
 }
