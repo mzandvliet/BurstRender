@@ -37,7 +37,7 @@ public class Painter : MonoBehaviour {
     private RenderTexture _canvasTex;
 
     private const int CONTROLS_PER_CURVE = 4;
-    private const int TESSELATE_VERTICAL = 8;
+    private const int TESSELATE_VERTICAL = 16;
     private const int TESSELATE_HORIZONTAL = 3; 
 
     private void Awake() {
@@ -65,8 +65,6 @@ public class Painter : MonoBehaviour {
     public void Init(int maxCurves) {
         int numVerts = maxCurves * TESSELATE_VERTICAL * TESSELATE_HORIZONTAL;
         int numIndices = maxCurves * (TESSELATE_VERTICAL-1) * (TESSELATE_HORIZONTAL-1) * 6;
-
-        Debug.Log(numVerts + ", " + numIndices);
 
         _verts = new NativeArray<float3>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
         _normals = new NativeArray<float3>(numVerts, Allocator.Persistent, NativeArrayOptions.ClearMemory);
@@ -115,11 +113,11 @@ public class Painter : MonoBehaviour {
     }
 
     private void UpdateMesh() {
-        Util.Copy(_vertsMan, _verts);
-        Util.Copy(_normalsMan, _normals);
-        Util.Copy(_vertColorsMan, _vertColors);
-        Util.Copy(_indicesMan, _indices);
-        Util.Copy(_uvsMan, _uvs);
+        Util.CopyToManaged(_verts, _vertsMan);
+        Util.CopyToManaged(_normals, _normalsMan);
+        Util.CopyToManaged(_vertColors, _vertColorsMan);
+        Util.CopyToManaged(_indices, _indicesMan);
+        Util.CopyToManaged(_uvs, _uvsMan);
 
         // The below is now the biggest bottleneck, at 0.24ms per frame on my machine
         _mesh.vertices = _vertsMan;

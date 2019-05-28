@@ -29,6 +29,7 @@ using System.Runtime.InteropServices;
  */
 
 public class Modeler : MonoBehaviour {
+    [SerializeField] private Surface _surface;
     [SerializeField] private Painter _painter;
 
     private Camera _camera;
@@ -39,17 +40,9 @@ public class Modeler : MonoBehaviour {
 
     private Rng _rng;
 
-    private const int NUM_CURVES = 8;
-    private const int CONTROLS_PER_CURVE = 4;
-
     private void Awake() {
         _camera = gameObject.GetComponent<Camera>();
         _camera.enabled = true;
-
-        _controls = new NativeArray<float3>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
-
-        _projectedControls = new NativeArray<float3>(NUM_CURVES * CONTROLS_PER_CURVE, Allocator.Persistent);
-        _colors = new NativeArray<float3>(NUM_CURVES, Allocator.Persistent);
 
         _rng = new Rng(1234);
     }
@@ -61,7 +54,12 @@ public class Modeler : MonoBehaviour {
     }
 
     private void Start() {
-        _painter.Init(NUM_CURVES);
+        const int numStrokes = 16;
+        _controls = new NativeArray<float3>(numStrokes * BDCCubic3d.NUM_POINTS, Allocator.Persistent);
+        _projectedControls = new NativeArray<float3>(_controls.Length, Allocator.Persistent);
+        _colors = new NativeArray<float3>(numStrokes, Allocator.Persistent);
+
+        _painter.Init(numStrokes);
     }
 
     private void Update() {
@@ -72,15 +70,10 @@ public class Modeler : MonoBehaviour {
 
     private void Paint() {
         var h = new JobHandle();
+        
+        CreateStrokesForSurface();
 
         _painter.Clear();
-
-        var cj = new GenerateCurvesJob();
-        cj.time = Time.frameCount * 0.01f;
-        cj.rng = new Rng((uint)_rng.NextInt());
-        cj.controlPoints = _controls;
-        cj.colors = _colors;
-        h = cj.Schedule();
 
         var pj = new ProjectCurvesJob();
         pj.mat = _camera.projectionMatrix * _camera.worldToCameraMatrix;
@@ -103,7 +96,8 @@ public class Modeler : MonoBehaviour {
 
     private void Draw3dSplines() {
         Gizmos.color = Color.white;
-        for (int c = 0; c < NUM_CURVES; c++) {
+        var numCurves = _controls.Length / 4;
+        for (int c = 0; c < numCurves; c++) {
             float3 pPrev = BDCCubic3d.GetAt(_controls, 0f, c);
             Gizmos.DrawSphere(pPrev, 0.01f);
             int steps = 8;
@@ -130,30 +124,76 @@ public class Modeler : MonoBehaviour {
         return new float3(v.x, v.y, 0f);
     }
 
-    private struct GenerateCurvesJob : IJob {
+    /*  Now this will be a tricky thing
+
+        Given some surface patch, we want to generate brush
+        strokes over it, satisfying some constraints.
+
+        Constraints can be:
+
+        - Should cover surface, leave no gaps
+        - Have n gradations of lighting
+        - Should follow this hashing pattern
+
+        etc.
+
+        Another function might want to:
+        - Extract silhouette
+        
+    */
+
+    private void CreateStrokesForSurface() {
+        var points = _surface.Points;
+        var numSurfaceCurves = _surface.Points.Length / 4;
+
+        var surfacePoints = new NativeArray<float3>(numSurfaceCurves * BDCCubic3d.NUM_POINTS, Allocator.TempJob);
+        Util.CopyToNative(points, surfacePoints);
+
+        var j = new GenerateSurfaceStrokesJob();
+        j.surfacePoints = surfacePoints;
+        j.rng = new Rng((uint)_rng.NextInt());
+        j.controlPoints = _controls;
+        j.colors = _colors;
+        j.Schedule().Complete();
+
+        surfacePoints.Dispose();
+    }
+
+    private struct GenerateSurfaceStrokesJob : IJob {
         public Rng rng;
 
-        [NativeDisableParallelForRestriction] public NativeArray<float3> controlPoints;
-        [NativeDisableParallelForRestriction] public NativeArray<float3> colors;
-        public float time;
+        [ReadOnly, NativeDisableParallelForRestriction] public NativeArray<float3> surfacePoints;
+
+        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float3> controlPoints;
+        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float3> colors;
 
         public void Execute() {
-            int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
+            int numTargetCurves = controlPoints.Length / BDCCubic3d.NUM_POINTS;
+
             rng.InitState(1234);
 
-            for (int c = 0; c < numCurves; c++) {
-                var p = new float3(c * 2f,0f, 3f);
+            var tempCurve = new NativeArray<float3>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
-                for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                    int idx = c * CONTROLS_PER_CURVE + j;
-                    // p += new float3(0.5f * j, 1f, 0.5f);
-                    p += new float3(rng.NextFloat2(), 0f);
+            // Todo: Instead of GetAt(points), we may simply Get(points.Slice)
+            for (int c = 0; c < numTargetCurves; c++) {
+                float tVert = c / (float)(numTargetCurves-1);
 
-                    controlPoints[idx] = p;
+                tempCurve[0] = BDCCubic3d.GetAt(surfacePoints, tVert, 0);
+                tempCurve[1] = BDCCubic3d.GetAt(surfacePoints, tVert, 1);
+                tempCurve[2] = BDCCubic3d.GetAt(surfacePoints, tVert, 2);
+                tempCurve[3] = BDCCubic3d.GetAt(surfacePoints, tVert, 3);
+
+                for (int j = 0; j < BDCCubic3d.NUM_POINTS; j++) {
+                    float tHori = j / (float)(BDCCubic3d.NUM_POINTS - 1);
+                    
+                    var p = BDCCubic3d.Get(tempCurve, tHori);
+                    controlPoints[c * BDCCubic3d.NUM_POINTS + j] = p;
                 }
 
                 colors[c] = rng.NextFloat3();
             }
+
+            tempCurve.Dispose();
         }
     }
 

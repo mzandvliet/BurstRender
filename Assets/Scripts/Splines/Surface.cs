@@ -7,7 +7,7 @@ using Rng = Unity.Mathematics.Random;
 
 [ExecuteInEditMode]
 public class Surface : MonoBehaviour {
-    [SerializeField] private float3[] _points = new float3[] {
+    [SerializeField] private Vector3[] _points = new Vector3[] {
         new float3(0, 0, 0),
         new float3(0, 1, 0),
         new float3(0, 2, 0),
@@ -29,7 +29,7 @@ public class Surface : MonoBehaviour {
         new float3(3, 3, 0),
     };
 
-    public float3[] Points {
+    public Vector3[] Points {
         get { return _points; }
         set { _points = value; }
     }

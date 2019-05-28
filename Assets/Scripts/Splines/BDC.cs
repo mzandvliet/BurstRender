@@ -164,6 +164,8 @@ public static class BDCCubic4d {
 }
 
 public static class BDCCubic3d {
+    public const int NUM_POINTS = 4;
+
     public static float3 GetCasteljau(NativeArray<float3> c, in float t) {
         float3 bc = math.lerp(c[1], c[2], t);
         return math.lerp(math.lerp(math.lerp(c[0], c[1], t), bc, t), math.lerp(bc, math.lerp(c[2], c[3], t), t), t);

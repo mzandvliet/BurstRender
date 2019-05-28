@@ -3,8 +3,10 @@ using Unity.Mathematics;
 using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
 
+/* Todo: Is it possible to generic memcopy implementations, where Source, Dest : struct? */
+
 public static class Util {
-    public static unsafe void Copy(Vector3[] destination, NativeArray<float3> source) {
+    public static unsafe void CopyToManaged(NativeArray<float3> source, Vector3[] destination) {
         fixed (void* vertexArrayPointer = destination) {
             UnsafeUtility.MemCpy(
                 vertexArrayPointer,
@@ -13,7 +15,19 @@ public static class Util {
         }
     }
 
-    public static unsafe void Copy(Color[] destination, NativeArray<float4> source) {
+    public static unsafe void CopyToNative(Vector3[] source, NativeArray<float3> destination) {
+        if (source.Length != destination.Length) {
+            throw new System.ArgumentException("Source length is not equal to destination length");
+        }
+        fixed (void* sourcePointer = source) {
+            UnsafeUtility.MemCpy(
+                NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(destination),
+                sourcePointer,
+                destination.Length * (long)UnsafeUtility.SizeOf<float3>());
+        }
+    }
+
+    public static unsafe void CopyToManaged(NativeArray<float4> source, Color[] destination) {
         fixed (void* vertexArrayPointer = destination) {
             UnsafeUtility.MemCpy(
                 vertexArrayPointer,
@@ -22,7 +36,7 @@ public static class Util {
         }
     }
 
-    public static unsafe void Copy(Vector2[] destination, NativeArray<float2> source) {
+    public static unsafe void CopyToManaged(NativeArray<float2> source, Vector2[] destination) {
         fixed (void* vertexArrayPointer = destination) {
             UnsafeUtility.MemCpy(
                 vertexArrayPointer,
@@ -31,7 +45,7 @@ public static class Util {
         }
     }
 
-    public static unsafe void Copy(int[] destination, NativeArray<int> source) {
+    public static unsafe void CopyToManaged(NativeArray<int> source, int[] destination) {
         fixed (void* vertexArrayPointer = destination) {
             UnsafeUtility.MemCpy(
                 vertexArrayPointer,
@@ -39,6 +53,9 @@ public static class Util {
                 destination.Length * (long)UnsafeUtility.SizeOf<int>());
         }
     }
+
+
+
     public static void ToTexture2D(NativeArray<float3> screen, Texture2D tex, int2 resolution) {
         Color[] colors = new Color[screen.Length];
 
