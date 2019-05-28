@@ -37,7 +37,7 @@ public class Painter : MonoBehaviour {
     private RenderTexture _canvasTex;
 
     private const int CONTROLS_PER_CURVE = 4;
-    private const int TESSELATE_VERTICAL = 16;
+    private const int TESSELATE_VERTICAL = 4;
     private const int TESSELATE_HORIZONTAL = 3; 
 
     private void Awake() {
@@ -95,10 +95,9 @@ public class Painter : MonoBehaviour {
         Graphics.Blit(_canvasTex, _canvasTex, _blitClearCanvasMaterial);
     }
 
-    public void Draw(NativeArray<float3> curves, NativeArray<float> widths, NativeArray<float3> colors) {
+    public void Draw(NativeArray<float3> curves, NativeArray<float3> colors) {
         var tessJob = new TesslateCurvesJob();
         tessJob.controls = curves;
-        tessJob.widths = widths;
         tessJob.colors = colors;
 
         tessJob.verts = _verts;
@@ -140,10 +139,6 @@ public class Painter : MonoBehaviour {
         GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height), _canvasTex);
     }
 
-    private static float3 ToFloat3(in float2 v) {
-        return new float3(v.x, v.y, 0f);
-    }
-
     /*
         Todo: 
         
@@ -154,7 +149,6 @@ public class Painter : MonoBehaviour {
     private struct TesslateCurvesJob : IJob {
         [ReadOnly] public NativeArray<float3> controls;
         [ReadOnly] public NativeArray<float3> colors;
-        [ReadOnly] public NativeArray<float> widths;
 
         public NativeArray<float3> verts;
         public NativeArray<float3> normals;
@@ -165,71 +159,66 @@ public class Painter : MonoBehaviour {
 
         public void Execute() {
             int numCurves = controls.Length / 4;
-            for (int c = 0; c < numCurves; c++) {
-                float4 color = new float4(colors[c].x, colors[c].y, colors[c].z, 1f);
+            for (int curveId = 0; curveId < numCurves; curveId++) {
+                float4 color = new float4(colors[curveId].x, colors[curveId].y, colors[curveId].z, 1f);
                 
                 for (int i = 0; i < TESSELATE_VERTICAL; i++) {
-                    int idx = c * TESSELATE_VERTICAL + i;
+                    int stepId = curveId * TESSELATE_VERTICAL + i;
                     float t = i / (float)(TESSELATE_VERTICAL-1);
 
-                    float3 pos = new float3(Util.HomogeneousNormalize(BDCCubic3d.GetAt(controls, t, c)), 0f);
+                    float3 pos = new float3(Util.HomogeneousNormalize(BDCCubic3d.GetAt(controls, t, curveId)), 0f);
+                    float3 posDelta = new float3(Util.HomogeneousNormalize(BDCCubic3d.GetAt(controls, t+0.01f, curveId)), 0f);
 
-                    // Ah shoot! I need to work out Tangent/Normal for rational curves
-                    // We'll hack it together for now by manipulating homogeneous tangent
-                    float3 tangent = BDCCubic3d.GetTangentAt(controls, t, c);
-                    tangent = tangent / tangent.z;
-                    tangent.z = 0f;
-                    tangent = math.normalize(tangent);
-                    float3 edge = ToFloat3(new float2(-tangent.y, tangent.x));
-                    // float3 edge = ToFloat3(-BDCCubic2d.GetNormalAt(controls, t, c));
-                    
-                    float width = widths[c];
-                    edge *= width;
+                    float3 curveTangent = math.normalize(posDelta - pos);
+                    float3 curveNormal = new float3(-pos.y, pos.x, 0f);
 
-                    float uvY = t;
+                    float width = 0.2f;
+                    curveNormal *= width;
 
                     var normal = new float3(0, 0, -1);
 
-                    verts[idx * 3 + 0] = pos - edge;
-                    verts[idx * 3 + 1] = pos;
-                    verts[idx * 3 + 2] = pos + edge;
+                    verts[stepId * 3 + 0] = pos + curveNormal;
+                    verts[stepId * 3 + 1] = pos;
+                    verts[stepId * 3 + 2] = pos + curveNormal;
 
-                    normals[idx * 3 + 0] = normal;
-                    normals[idx * 3 + 1] = normal;
-                    normals[idx * 3 + 2] = normal;
+                    normals[stepId * 3 + 0] = normal;
+                    normals[stepId * 3 + 1] = normal;
+                    normals[stepId * 3 + 2] = normal;
 
-                    vertColors[idx * 3 + 0] = color;
-                    vertColors[idx * 3 + 1] = color;
-                    vertColors[idx * 3 + 2] = color;
+                    vertColors[stepId * 3 + 0] = color;
+                    vertColors[stepId * 3 + 1] = color;
+                    vertColors[stepId * 3 + 2] = color;
 
                     const float uvTile = 1f;
 
-                    uvs[idx * 3 + 0] = new float2(0.0f, uvY * uvTile);
-                    uvs[idx * 3 + 1] = new float2(0.5f, uvY * uvTile);
-                    uvs[idx * 3 + 2] = new float2(1.0f, uvY * uvTile);
+                    float uvY = t;
+                    uvs[stepId * 3 + 0] = new float2(0.0f, uvY * uvTile);
+                    uvs[stepId * 3 + 1] = new float2(0.5f, uvY * uvTile);
+                    uvs[stepId * 3 + 2] = new float2(1.0f, uvY * uvTile);
                 }
             }
 
-            for (int c = 0; c < numCurves; c++) {
+            // Todo: only have to generate and set these once
+            for (int curveId = 0; curveId < numCurves; curveId++) {
                 for (int i = 0; i < TESSELATE_VERTICAL-1; i++) {
-                    int baseIdx = c * (TESSELATE_VERTICAL-1) * 12 + i * 12;
-                    int vertIdx = c * TESSELATE_VERTICAL + i;
+                    int baseIdx = curveId * (TESSELATE_VERTICAL-1) * 12 + i * 12;
+                    int stepIdx = curveId * TESSELATE_VERTICAL + i;
 
-                    indices[baseIdx + 0] = (vertIdx + 0) * 3 + 0;
-                    indices[baseIdx + 1] = (vertIdx + 1) * 3 + 0;
-                    indices[baseIdx + 2] = (vertIdx + 1) * 3 + 1;
+                    indices[baseIdx + 0 ] = (stepIdx + 0) * 3 + 0;
+                    indices[baseIdx + 1 ] = (stepIdx + 1) * 3 + 0;
+                    indices[baseIdx + 2 ] = (stepIdx + 1) * 3 + 1;
 
-                    indices[baseIdx + 3] = (vertIdx + 0) * 3 + 0;
-                    indices[baseIdx + 4] = (vertIdx + 1) * 3 + 1;
-                    indices[baseIdx + 5] = (vertIdx + 0) * 3 + 1;
+                    indices[baseIdx + 3 ] = (stepIdx + 0) * 3 + 0;
+                    indices[baseIdx + 4 ] = (stepIdx + 1) * 3 + 1;
+                    indices[baseIdx + 5 ] = (stepIdx + 0) * 3 + 1;
 
-                    indices[baseIdx + 6] = (vertIdx + 0) * 3 + 1;
-                    indices[baseIdx + 7] = (vertIdx + 1) * 3 + 1;
-                    indices[baseIdx + 8] = (vertIdx + 1) * 3 + 2;
+                    indices[baseIdx + 6 ] = (stepIdx + 0) * 3 + 1;
+                    indices[baseIdx + 7 ] = (stepIdx + 1) * 3 + 1;
+                    indices[baseIdx + 8 ] = (stepIdx + 1) * 3 + 2;
 
-                    indices[baseIdx + 9] = (vertIdx + 0) * 3 + 1;
-                    indices[baseIdx + 10] = (vertIdx + 1) * 3 + 2;
-                    indices[baseIdx + 11] = (vertIdx + 0) * 3 + 2;
+                    indices[baseIdx + 9 ] = (stepIdx + 0) * 3 + 1;
+                    indices[baseIdx + 10] = (stepIdx + 1) * 3 + 2;
+                    indices[baseIdx + 11] = (stepIdx + 0) * 3 + 2;
                 }
             }
         }
