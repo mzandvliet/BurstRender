@@ -152,11 +152,26 @@ public class HomogeneousProjection : MonoBehaviour {
             var p = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, t)), 0f);
             p = new float3(0.5f, 0.5f, 0f) + p * 0.5f;  // from NDC to screenspace
 
+            var tangent = math.normalize((p - pPrev)) * 0.05f;
+            var normal = new float3(-tangent.y, tangent.x, 0f);
+
             GL.Begin(GL.LINES);
             GL.Color(Color.red);
             GL.Vertex(pPrev);
             GL.Vertex(p);
-            GL.End();            
+            GL.End();
+
+            // GL.Begin(GL.LINES);
+            // GL.Color(Color.red);
+            // GL.Vertex(p);
+            // GL.Vertex(p + tangent);
+            // GL.End();
+
+            GL.Begin(GL.LINES);
+            GL.Color(Color.red);
+            GL.Vertex(p);
+            GL.Vertex(p + normal);
+            GL.End();
 
             pPrev = p;
         }
