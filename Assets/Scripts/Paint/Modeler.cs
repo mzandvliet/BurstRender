@@ -115,11 +115,11 @@ public class Modeler : MonoBehaviour {
                 Gizmos.DrawLine(pPrev, p);
                 Gizmos.DrawSphere(p, 0.01f);
 
-                // Gizmos.color = Color.blue;
-                // Gizmos.DrawRay(p, n * 0.3f);
-                // Gizmos.DrawRay(p, -n * 0.3f);
-                // Gizmos.color = Color.green;
-                // Gizmos.DrawRay(p, tg);
+                Gizmos.color = Color.blue;
+                Gizmos.DrawRay(p, n * 0.3f);
+                Gizmos.DrawRay(p, -n * 0.3f);
+                Gizmos.color = Color.green;
+                Gizmos.DrawRay(p, tg);
 
                 pPrev = p;
             }    
@@ -141,16 +141,18 @@ public class Modeler : MonoBehaviour {
             int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
             rng.InitState(1234);
 
-            for (int i = 0; i < numCurves; i++) {
-                var p = new float3(i * 2f,0f, 3f);
-                
+            for (int c = 0; c < numCurves; c++) {
+                var p = new float3(c * 2f,0f, 3f);
+
                 for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                    int idx = i * CONTROLS_PER_CURVE + j;
-                    p += new float3(0.5f * j, 1f, 0.5f);
+                    int idx = c * CONTROLS_PER_CURVE + j;
+                    // p += new float3(0.5f * j, 1f, 0.5f);
+                    p += new float3(rng.NextFloat2(), 0f);
+
                     controlPoints[idx] = p;
                 }
 
-                colors[i] = rng.NextFloat3() * (0.95f - 0.4f / p.z);
+                colors[c] = rng.NextFloat3();
             }
         }
     }
@@ -161,15 +163,10 @@ public class Modeler : MonoBehaviour {
         [WriteOnly] public NativeArray<float3> projectedControls;
 
         public void Execute() {
-            int numCurves = controlPoints.Length / CONTROLS_PER_CURVE;
-            for (int c = 0; c < numCurves; c++) {
-                for (int j = 0; j < CONTROLS_PER_CURVE; j++) {
-                    int idx = c * CONTROLS_PER_CURVE + j;
-
-                    float4 p = new float4(controlPoints[idx], 1f);
-                    p = math.mul(mat, p);
-                    projectedControls[idx] = new float3(p.x, p.y, p.w);
-                }
+            for (int i = 0; i < controlPoints.Length; i++) {
+                float4 p = new float4(controlPoints[i], 1f);
+                p = math.mul(mat, p);
+                projectedControls[i] = new float3(p.x, p.y, p.w);
             }
         }
     }

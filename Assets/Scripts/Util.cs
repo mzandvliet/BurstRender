@@ -62,8 +62,8 @@ public static class Util {
         return new float3(v.x / v.w, v.y / v.w, v.z / v.w);
     }
 
-    public static float2 HomogeneousNormalize(float3 v) {
-        return new float2(v.x / v.z, v.y / v.z);
+    public static float3 PerspectiveDivide(float3 v) {
+        return new float3(v.x / v.z, v.y / v.z, 1f);
     }
 
     public static Vector3 ToVec3(float2 p) {

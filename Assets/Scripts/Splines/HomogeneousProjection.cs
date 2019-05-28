@@ -144,15 +144,15 @@ public class HomogeneousProjection : MonoBehaviour {
         _lineMaterial.SetPass(0);
         GL.LoadOrtho();
 
-        var pPrev = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, 0f)), 0f);
+        var pPrev = Util.PerspectiveDivide(BDCCubic3d.Get(_curve2dRat, 0f));
         pPrev = new float3(0.5f, 0.5f, 0f) + pPrev * 0.5f; // from NDC to screenspace
         int steps = 16;
         for (int i = 1; i <= steps; i++) {
             float t = i / (float)(steps - 1);
-            var p = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, t)), 0f);
+            var p = Util.PerspectiveDivide(BDCCubic3d.Get(_curve2dRat, t));
             p = new float3(0.5f, 0.5f, 0f) + p * 0.5f;  // from NDC to screenspace
 
-            var pDelta = new float3(Util.HomogeneousNormalize(BDCCubic3d.Get(_curve2dRat, t+0.01f)), 0f);
+            var pDelta = Util.PerspectiveDivide(BDCCubic3d.Get(_curve2dRat, t+0.01f));
             pDelta = new float3(0.5f, 0.5f, 0f) + pDelta * 0.5f;  // from NDC to screenspace
 
             var tangent = math.normalize((pDelta - p)) * 0.05f;

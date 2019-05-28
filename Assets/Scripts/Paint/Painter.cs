@@ -37,7 +37,7 @@ public class Painter : MonoBehaviour {
     private RenderTexture _canvasTex;
 
     private const int CONTROLS_PER_CURVE = 4;
-    private const int TESSELATE_VERTICAL = 4;
+    private const int TESSELATE_VERTICAL = 8;
     private const int TESSELATE_HORIZONTAL = 3; 
 
     private void Awake() {
@@ -96,7 +96,7 @@ public class Painter : MonoBehaviour {
     }
 
     public void Draw(NativeArray<float3> curves, NativeArray<float3> colors) {
-        var tessJob = new TesslateCurvesJob();
+        var tessJob = new TesselateCurvesJob();
         tessJob.controls = curves;
         tessJob.colors = colors;
 
@@ -146,7 +146,7 @@ public class Painter : MonoBehaviour {
         maaaay want to do this in a ComputeShader instead, we'll see
      */
 
-    private struct TesslateCurvesJob : IJob {
+    private struct TesselateCurvesJob : IJob {
         [ReadOnly] public NativeArray<float3> controls;
         [ReadOnly] public NativeArray<float3> colors;
 
@@ -166,24 +166,24 @@ public class Painter : MonoBehaviour {
                     int stepId = curveId * TESSELATE_VERTICAL + i;
                     float t = i / (float)(TESSELATE_VERTICAL-1);
 
-                    float3 pos = new float3(Util.HomogeneousNormalize(BDCCubic3d.GetAt(controls, t, curveId)), 0f);
-                    float3 posDelta = new float3(Util.HomogeneousNormalize(BDCCubic3d.GetAt(controls, t+0.01f, curveId)), 0f);
+                    float3 pos = Util.PerspectiveDivide(BDCCubic3d.GetAt(controls, t, curveId));
+                    float3 posDelta = Util.PerspectiveDivide(BDCCubic3d.GetAt(controls, t+0.01f, curveId));
 
                     float3 curveTangent = math.normalize(posDelta - pos);
-                    float3 curveNormal = new float3(-pos.y, pos.x, 0f);
+                    float3 curveNormal = new float3(-curveTangent.y, curveTangent.x, 0f);
 
                     float width = 0.2f;
                     curveNormal *= width;
 
-                    var normal = new float3(0, 0, -1);
+                    var surfaceNormal = new float3(0, 0, -1);
 
                     verts[stepId * 3 + 0] = pos + curveNormal;
                     verts[stepId * 3 + 1] = pos;
-                    verts[stepId * 3 + 2] = pos + curveNormal;
+                    verts[stepId * 3 + 2] = pos - curveNormal;
 
-                    normals[stepId * 3 + 0] = normal;
-                    normals[stepId * 3 + 1] = normal;
-                    normals[stepId * 3 + 2] = normal;
+                    normals[stepId * 3 + 0] = surfaceNormal;
+                    normals[stepId * 3 + 1] = surfaceNormal;
+                    normals[stepId * 3 + 2] = surfaceNormal;
 
                     vertColors[stepId * 3 + 0] = color;
                     vertColors[stepId * 3 + 1] = color;
