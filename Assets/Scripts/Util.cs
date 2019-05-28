@@ -83,6 +83,10 @@ public static class Util {
         return new float3(v.x / v.z, v.y / v.z, 1f);
     }
 
+    public static float3 PerspectiveDivide(float4 v) {
+        return new float3(v.x / v.w, v.y / v.w, v.z); // Todo:  also v.z / v.w ??
+    }
+
     public static Vector3 ToVec3(float2 p) {
         return new Vector3(p.x, p.y, 0f);
     }

@@ -36,7 +36,7 @@ public class Modeler : MonoBehaviour {
     private Camera _camera;
 
     private NativeArray<float3> _controls;
-    private NativeArray<float3> _projectedControls;
+    private NativeArray<float4> _projectedControls;
     private NativeArray<float3> _colors;
 
     private Rng _rng;
@@ -61,7 +61,7 @@ public class Modeler : MonoBehaviour {
         int numBranches = 6;
         int numCurves = SumPowersOfTwo(numBranches);
         _controls = new NativeArray<float3>(numCurves * 4, Allocator.Persistent);
-        _projectedControls = new NativeArray<float3>(_controls.Length, Allocator.Persistent);
+        _projectedControls = new NativeArray<float4>(_controls.Length, Allocator.Persistent);
         _colors = new NativeArray<float3>(numCurves, Allocator.Persistent);
 
         var treeJob = new GenerateFlowerJob();
@@ -333,13 +333,13 @@ public class Modeler : MonoBehaviour {
     private struct ProjectCurvesJob : IJob {
         [ReadOnly] public float4x4 mat;
         [ReadOnly] public NativeArray<float3> controlPoints;
-        [WriteOnly] public NativeArray<float3> projectedControls;
+        [WriteOnly] public NativeArray<float4> projectedControls;
 
         public void Execute() {
             for (int i = 0; i < controlPoints.Length; i++) {
                 float4 p = new float4(controlPoints[i], 1f);
                 p = math.mul(mat, p);
-                projectedControls[i] = new float3(p.x, p.y, p.w);
+                projectedControls[i] = p;
             }
         }
     }

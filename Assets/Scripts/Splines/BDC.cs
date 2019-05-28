@@ -52,7 +52,7 @@ public static class BDCCubic4d {
         right[3] = o[3];
     }
 
-    public static float4 Get(NativeArray<float4> c, in float t) {
+    public static float4 Get(NativeSlice<float4> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -63,7 +63,7 @@ public static class BDCCubic4d {
             c[3] * (t2 * t);
     }
 
-    public static float4 GetAt(NativeArray<float4> c, in float t, int idx) {
+    public static float4 GetAt(NativeSlice<float4> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -75,7 +75,7 @@ public static class BDCCubic4d {
             c[idx + 3] * (t2 * t);
     }
 
-    public static float4 GetTangent(NativeArray<float4> c, in float t) {
+    public static float4 GetTangent(NativeSlice<float4> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -87,7 +87,7 @@ public static class BDCCubic4d {
         );
     }
 
-    public static float4 GetNonUnitTangent(NativeArray<float4> c, in float t) {
+    public static float4 GetNonUnitTangent(NativeSlice<float4> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -98,7 +98,7 @@ public static class BDCCubic4d {
             c[3] * (t2);
     }
 
-    public static float4 GetTangentAt(NativeArray<float4> c, in float t, int idx) {
+    public static float4 GetTangentAt(NativeSlice<float4> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -111,7 +111,7 @@ public static class BDCCubic4d {
         );
     }
 
-    public static float Length(NativeArray<float4> c, in int steps) {
+    public static float Length(NativeSlice<float4> c, in int steps) {
         float dist = 0;
 
         float4 pPrev = c[0];
@@ -125,7 +125,7 @@ public static class BDCCubic4d {
         return dist;
     }
 
-    public static float Length(NativeArray<float4> c, in int steps, in float t) {
+    public static float Length(NativeSlice<float4> c, in int steps, in float t) {
         float dist = 0;
 
         float4 pPrev = c[0];
@@ -139,7 +139,7 @@ public static class BDCCubic4d {
         return dist;
     }
 
-    public static float Length(NativeArray<float> distances, float t) {
+    public static float Length(NativeSlice<float> distances, float t) {
         t = t * (float)(distances.Length - 1);
         int ti = (int)math.floor(t);
         if (ti >= distances.Length - 1) {

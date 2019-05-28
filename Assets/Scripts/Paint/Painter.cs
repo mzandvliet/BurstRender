@@ -93,7 +93,7 @@ public class Painter : MonoBehaviour {
         Graphics.Blit(_canvasTex, _canvasTex, _blitClearCanvasMaterial);
     }
 
-    public void Draw(NativeArray<float3> curves, NativeArray<float3> colors) {
+    public void Draw(NativeArray<float4> curves, NativeArray<float3> colors) {
         var tessJob = new TesselateCurvesJob();
         tessJob.controls = curves;
         tessJob.colors = colors;
@@ -141,7 +141,7 @@ public class Painter : MonoBehaviour {
      */
 
     private struct TesselateCurvesJob : IJob {
-        [ReadOnly] public NativeArray<float3> controls;
+        [ReadOnly] public NativeArray<float4> controls;
         [ReadOnly] public NativeArray<float3> colors;
 
         public NativeArray<float3> verts;
@@ -161,8 +161,11 @@ public class Painter : MonoBehaviour {
                     float t = i / (float)(TESSELATE_VERTICAL-1);
 
                     var curve = controls.Slice(curveId * 4, 4);
-                    float3 pos = Util.PerspectiveDivide(BDCCubic3d.Get(curve, t));
-                    float3 posDelta = Util.PerspectiveDivide(BDCCubic3d.Get(curve, t+0.01f));
+                    float3 pos = Util.PerspectiveDivide(BDCCubic4d.Get(curve, t));
+                    float depth = pos.z;
+                    float3 posDelta = Util.PerspectiveDivide(BDCCubic4d.Get(curve, t+0.01f));
+                    pos.z = 0;
+                    posDelta.z = 0;
 
                     float3 curveTangent = math.normalize(posDelta - pos);
                     float3 curveNormal = new float3(-curveTangent.y, curveTangent.x, 0f);
@@ -172,6 +175,7 @@ public class Painter : MonoBehaviour {
 
                     var surfaceNormal = new float3(0, 0, -1);
 
+                    pos.z = depth;
                     verts[stepId * 3 + 0] = pos + curveNormal;
                     verts[stepId * 3 + 1] = pos;
                     verts[stepId * 3 + 2] = pos - curveNormal;
