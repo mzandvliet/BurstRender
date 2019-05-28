@@ -109,10 +109,6 @@ public class Painter : MonoBehaviour {
 
         h.Complete();
 
-        for (int i = 0; i < colors.Length; i++) {
-            Debug.Log(colors[i]);
-        }
-
         UpdateMesh();
         
         _camera.Render();
