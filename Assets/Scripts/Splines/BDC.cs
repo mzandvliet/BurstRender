@@ -166,12 +166,12 @@ public static class BDCCubic4d {
 public static class BDCCubic3d {
     public const int NUM_POINTS = 4;
 
-    public static float3 GetCasteljau(NativeArray<float3> c, in float t) {
+    public static float3 GetCasteljau(NativeSlice<float3> c, in float t) {
         float3 bc = math.lerp(c[1], c[2], t);
         return math.lerp(math.lerp(math.lerp(c[0], c[1], t), bc, t), math.lerp(bc, math.lerp(c[2], c[3], t), t), t);
     }
 
-    public static void Split(NativeArray<float3> o, in float t, NativeArray<float3> left, NativeArray<float3> right) {
+    public static void Split(NativeSlice<float3> o, in float t, NativeSlice<float3> left, NativeSlice<float3> right) {
         float3 ab = math.lerp(o[0], o[1], t);
         float3 bc = math.lerp(o[1], o[2], t);
         float3 cd = math.lerp(o[2], o[3], t);
@@ -192,7 +192,7 @@ public static class BDCCubic3d {
         right[3] = o[3];
     }
 
-    public static float3 Get(NativeArray<float3> c, in float t) {
+    public static float3 Get(NativeSlice<float3> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -203,7 +203,7 @@ public static class BDCCubic3d {
             c[3] * (t2 * t);
     }
 
-    public static float3 GetAt(NativeArray<float3> c, in float t, int idx) {
+    public static float3 GetAt(NativeSlice<float3> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -215,7 +215,7 @@ public static class BDCCubic3d {
             c[idx + 3] * (t2 * t);
     }
 
-    public static float3 GetTangent(NativeArray<float3> c, in float t) {
+    public static float3 GetTangent(NativeSlice<float3> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -227,7 +227,7 @@ public static class BDCCubic3d {
         );
     }
 
-    public static float3 GetNonUnitTangent(NativeArray<float3> c, in float t) {
+    public static float3 GetNonUnitTangent(NativeSlice<float3> c, in float t) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;
@@ -238,7 +238,7 @@ public static class BDCCubic3d {
             c[3] * (t2);
     }
 
-    public static float3 GetTangentAt(NativeArray<float3> c, in float t, int idx) {
+    public static float3 GetTangentAt(NativeSlice<float3> c, in float t, int idx) {
         float omt = 1f - t;
         float omt2 = omt * omt;
         float t2 = t * t;

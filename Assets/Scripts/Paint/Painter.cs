@@ -45,7 +45,7 @@ public class Painter : MonoBehaviour {
         _canvasTex.Create();
 
         _camera = gameObject.GetComponent<Camera>();
-        _camera.orthographicSize = 4f;
+        _camera.orthographicSize = 1f;
         _camera.orthographic = true;
         _camera.targetTexture = _canvasTex;
         _camera.enabled = false;
@@ -160,13 +160,14 @@ public class Painter : MonoBehaviour {
                     int stepId = curveId * TESSELATE_VERTICAL + i;
                     float t = i / (float)(TESSELATE_VERTICAL-1);
 
-                    float3 pos = Util.PerspectiveDivide(BDCCubic3d.GetAt(controls, t, curveId));
-                    float3 posDelta = Util.PerspectiveDivide(BDCCubic3d.GetAt(controls, t+0.01f, curveId));
+                    var curve = controls.Slice(curveId * 4, 4);
+                    float3 pos = Util.PerspectiveDivide(BDCCubic3d.Get(curve, t));
+                    float3 posDelta = Util.PerspectiveDivide(BDCCubic3d.Get(curve, t+0.01f));
 
                     float3 curveTangent = math.normalize(posDelta - pos);
                     float3 curveNormal = new float3(-curveTangent.y, curveTangent.x, 0f);
 
-                    float width = 0.1f;
+                    float width = 0.05f;
                     curveNormal *= width;
 
                     var surfaceNormal = new float3(0, 0, -1);

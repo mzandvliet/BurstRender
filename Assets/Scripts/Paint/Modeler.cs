@@ -58,7 +58,7 @@ public class Modeler : MonoBehaviour {
         // const int numStrokes = 16;
         // _controls = new NativeArray<float3>(numStrokes * BDCCubic3d.NUM_POINTS, Allocator.Persistent);
 
-        int numBranches = 8;
+        int numBranches = 6;
         int numCurves = SumPowersOfTwo(numBranches);
         _controls = new NativeArray<float3>(numCurves * 4, Allocator.Persistent);
         _projectedControls = new NativeArray<float3>(_controls.Length, Allocator.Persistent);
@@ -92,7 +92,6 @@ public class Modeler : MonoBehaviour {
         pj.controlPoints = _controls;
         pj.projectedControls = _projectedControls;
         h = pj.Schedule(h);
-
         h.Complete();
 
         _painter.Draw(_projectedControls, _colors);
@@ -190,38 +189,33 @@ public class Modeler : MonoBehaviour {
             while (stack.Count > 0) {
                 var parent = tree.GetNode(stack.Peek());
 
-                Debug.Log("Depth: " + stack.Count + " / " + numBranches);
-
                 if (stack.Count < numBranches) {
                     
                     if (parent.leftChild == -1) {
-                        Debug.Log("Branching left from parent: " + parent.index);
                         var newChildIndex = tree.NewNode();
                         var controlPointIndex = newChildIndex * 4;
-                        Debug.Log("Growing from control point: " + controlPointIndex);
                         var pos = controlPoints[parent.index * 4 + 3];
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), pos, ref rng);
+                        colors[newChildIndex] = rng.NextFloat3();
                         parent.leftChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
                         continue;
                     } else
                     if (parent.rightChild == -1) {
-                        Debug.Log("Branching right from parent: " + parent.index);
                         var newChildIndex = tree.NewNode();
                         var controlPointIndex = newChildIndex * 4;
                         var pos = controlPoints[parent.index * 4 + 3];
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), pos, ref rng);
+                        colors[newChildIndex] = rng.NextFloat3();
                         parent.rightChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
                         continue;
                     } else {
-                        Debug.Log("Returning");
                         stack.Pop();
                     }
                 } else {
-                    Debug.Log("Returning because too large");
                     stack.Pop();
                 }
             }
