@@ -7,6 +7,7 @@ using Rng = Unity.Mathematics.Random;
 using Ramjet;
 using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
+using System;
 
 /* 
     Todo:
@@ -54,12 +55,23 @@ public class Modeler : MonoBehaviour {
     }
 
     private void Start() {
-        const int numStrokes = 16;
-        _controls = new NativeArray<float3>(numStrokes * BDCCubic3d.NUM_POINTS, Allocator.Persistent);
-        _projectedControls = new NativeArray<float3>(_controls.Length, Allocator.Persistent);
-        _colors = new NativeArray<float3>(numStrokes, Allocator.Persistent);
+        // const int numStrokes = 16;
+        // _controls = new NativeArray<float3>(numStrokes * BDCCubic3d.NUM_POINTS, Allocator.Persistent);
 
-        _painter.Init(numStrokes);
+        int numBranches = 8;
+        int numCurves = SumPowersOfTwo(numBranches);
+        _controls = new NativeArray<float3>(numCurves * 4, Allocator.Persistent);
+        _projectedControls = new NativeArray<float3>(_controls.Length, Allocator.Persistent);
+        _colors = new NativeArray<float3>(numCurves, Allocator.Persistent);
+
+        var treeJob = new GenerateFlowerJob();
+        treeJob.numBranches = numBranches;
+        treeJob.controlPoints = _controls;
+        treeJob.colors = _colors;
+        treeJob.rng = new Rng(1234);
+        treeJob.Schedule().Complete();
+
+        _painter.Init(numCurves);
     }
 
     private void Update() {
@@ -71,7 +83,7 @@ public class Modeler : MonoBehaviour {
     private void Paint() {
         var h = new JobHandle();
         
-        CreateStrokesForSurface();
+        // CreateStrokesForSurface();
 
         _painter.Clear();
 
@@ -109,11 +121,11 @@ public class Modeler : MonoBehaviour {
                 Gizmos.DrawLine(pPrev, p);
                 Gizmos.DrawSphere(p, 0.01f);
 
-                Gizmos.color = Color.blue;
-                Gizmos.DrawRay(p, n * 0.3f);
-                Gizmos.DrawRay(p, -n * 0.3f);
-                Gizmos.color = Color.green;
-                Gizmos.DrawRay(p, tg);
+                // Gizmos.color = Color.blue;
+                // Gizmos.DrawRay(p, n * 0.3f);
+                // Gizmos.DrawRay(p, -n * 0.3f);
+                // Gizmos.color = Color.green;
+                // Gizmos.DrawRay(p, tg);
 
                 pPrev = p;
             }    
@@ -159,6 +171,132 @@ public class Modeler : MonoBehaviour {
         surfacePoints.Dispose();
     }
 
+    private struct GenerateFlowerJob : IJob {
+        [ReadOnly] public int numBranches;
+        public Rng rng;
+        public NativeArray<float3> controlPoints;
+        [WriteOnly] public NativeArray<float3> colors;
+
+        public void Execute() {
+            rng.InitState(12345);
+
+            var stack = new NativeStack<int>(SumPowersOfTwo(numBranches), Allocator.Temp);
+            var tree = new Tree(SumPowersOfTwo(numBranches));
+
+            var rootIndex = tree.NewNode();
+            GrowBranch(controlPoints.Slice(0, 4), new float3(0f, 0f, 1f), ref rng);
+            stack.Push(rootIndex);
+
+            while (stack.Count > 0) {
+                var parent = tree.GetNode(stack.Peek());
+
+                Debug.Log("Depth: " + stack.Count + " / " + numBranches);
+
+                if (stack.Count < numBranches) {
+                    
+                    if (parent.leftChild == -1) {
+                        Debug.Log("Branching left from parent: " + parent.index);
+                        var newChildIndex = tree.NewNode();
+                        var controlPointIndex = newChildIndex * 4;
+                        Debug.Log("Growing from control point: " + controlPointIndex);
+                        var pos = controlPoints[parent.index * 4 + 3];
+                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), pos, ref rng);
+                        parent.leftChild = newChildIndex;
+                        stack.Push(newChildIndex);
+                        tree.Set(parent);
+                        continue;
+                    } else
+                    if (parent.rightChild == -1) {
+                        Debug.Log("Branching right from parent: " + parent.index);
+                        var newChildIndex = tree.NewNode();
+                        var controlPointIndex = newChildIndex * 4;
+                        var pos = controlPoints[parent.index * 4 + 3];
+                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), pos, ref rng);
+                        parent.rightChild = newChildIndex;
+                        stack.Push(newChildIndex);
+                        tree.Set(parent);
+                        continue;
+                    } else {
+                        Debug.Log("Returning");
+                        stack.Pop();
+                    }
+                } else {
+                    Debug.Log("Returning because too large");
+                    stack.Pop();
+                }
+            }
+
+            stack.Dispose();
+            tree.Dispose();
+        }
+
+        private static void GrowBranch(NativeSlice<float3> curve, float3 pos, ref Rng rng) {
+            curve[0] = pos;
+            for (int b = 1; b < 4; b++) {
+                var growth = rng.NextFloat3(new float3(-1f, 0.5f, -1f), new float3(1f, 1f, 1f));
+                pos += growth;
+                curve[b] = pos;
+            }
+        }
+
+        private struct Tree : IDisposable {
+            private NativeArray<TreeNode> _nodes;
+            private int _count;
+
+            public Tree(int capacity) {
+                _nodes = new NativeArray<TreeNode>(capacity, Allocator.Temp);
+                _count = 0;
+            }
+
+            public void Dispose() {
+                _nodes.Dispose();
+            }
+
+            public int NewNode() {
+                if (_count == _nodes.Length) {
+                    throw new Exception("Tree can't allocate more nodes");
+                }
+                int index = _count++;
+                _nodes[index] = new TreeNode() {
+                    index = index,
+                    leftChild = -1,
+                    rightChild = -1,
+                };
+                return index;
+            }
+
+            public void Set(TreeNode node) {
+                _nodes[node.index] = node;
+            }
+
+            public TreeNode GetNode(int index) {
+                return _nodes[index];
+            }
+        }
+
+        private struct TreeNode {
+            public int index;
+            public int leftChild;
+            public int rightChild;
+        }
+    }
+
+    public static int SumPowersOfTwo(int n) {
+        return IntPow(2, n) - 1;
+    }
+
+    public static int IntPow(int n, int pow) {
+        int v = 1;
+        while (pow != 0) {
+            if ( (pow & 1) == 1) {
+                v *= n;
+            }
+            n *= n;
+            pow >>= 1;
+        }
+        return v;
+    }
+
     private struct GenerateSurfaceStrokesJob : IJob {
         public Rng rng;
 
@@ -190,7 +328,8 @@ public class Modeler : MonoBehaviour {
                     controlPoints[c * BDCCubic3d.NUM_POINTS + j] = p;
                 }
 
-                colors[c] = rng.NextFloat3();
+                float3 albedo = new float3(143f / 255f, 111 / 255f, 84 / 255f);
+                colors[c] = albedo * (0.5f + tVert * 1f);
             }
 
             tempCurve.Dispose();
@@ -209,5 +348,51 @@ public class Modeler : MonoBehaviour {
                 projectedControls[i] = new float3(p.x, p.y, p.w);
             }
         }
+    }
+}
+
+public struct NativeStack<T> : IDisposable where T : struct {
+    private NativeArray<T> _items;
+    private int _current;
+
+    public int Count {
+        get { return _current+1; }
+    }
+
+    public NativeStack(int capacity, Allocator allocator) {
+        _items = new NativeArray<T>(capacity, allocator, NativeArrayOptions.ClearMemory);
+        _current = -1;
+    }
+
+    public void Dispose() {
+        _items.Dispose();
+    }
+
+    public void Push(T item) {
+        if (_current + 1 > _items.Length) {
+            throw new Exception("Push failed. Stack has already reached maximum capacity.");
+        }
+
+        _current++;
+        _items[_current] = item;
+    }
+
+    public T Pop() {
+        if(_current == -1) {
+            throw new Exception("Pop failed. Stack is empty.");
+        }
+
+        T item = _items[_current];
+        _current--;
+        return item;
+    }
+
+    public T Peek() {
+        if (_current == -1) {
+            throw new Exception("Peek failed. Stack is empty.");
+        }
+
+        T item = _items[_current];
+        return item;
     }
 }

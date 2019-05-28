@@ -166,7 +166,7 @@ public class Painter : MonoBehaviour {
                     float3 curveTangent = math.normalize(posDelta - pos);
                     float3 curveNormal = new float3(-curveTangent.y, curveTangent.x, 0f);
 
-                    float width = 0.2f;
+                    float width = 0.1f;
                     curveNormal *= width;
 
                     var surfaceNormal = new float3(0, 0, -1);
