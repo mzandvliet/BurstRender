@@ -100,6 +100,8 @@ public class Painter : MonoBehaviour {
 
     public void Draw(NativeArray<float4> curves, NativeArray<float> widths, NativeArray<float3> colors) {
         var tessJob = new TesselateCurvesJob();
+        tessJob.rng = new Rng(_rng.NextUInt());
+        
         tessJob.controls = curves;
         tessJob.colors = colors;
 
@@ -141,18 +143,21 @@ public class Painter : MonoBehaviour {
         Todo: 
         
         Strong enough curvature will make the outer edges overlap and flip triangles
-        maaaay want to do this in a ComputeShader instead, we'll see
+        
+        Move to vertex shader or compute shader
      */
 
     private struct TesselateCurvesJob : IJob {
+        public Rng rng;
+
         [ReadOnly] public NativeArray<float4> controls;
         [ReadOnly] public NativeArray<float> widths;
         [ReadOnly] public NativeArray<float3> colors;
 
-        public NativeArray<float3> verts;
-        public NativeArray<float3> normals;
-        public NativeArray<float2> uvs;
-        public NativeArray<float4> vertColors;
+        [WriteOnly] public NativeArray<float3> verts;
+        [WriteOnly] public NativeArray<float3> normals;
+        [WriteOnly] public NativeArray<float2> uvs;
+        [WriteOnly] public NativeArray<float4> vertColors;
 
         public void Execute() {
             int numCurves = controls.Length / 4;
@@ -171,7 +176,7 @@ public class Painter : MonoBehaviour {
                 for (int i = 0; i < TESSELATE_VERTICAL; i++) {
                     int stepId = curveId * TESSELATE_VERTICAL + i;
                     float t = i / (float)(TESSELATE_VERTICAL-1);
-                    
+
                     float3 pos = Util.PerspectiveDivide(BDCCubic4d.Get(curve, t));
                     // float depth = pos.z;
                     float3 posDelta = Util.PerspectiveDivide(BDCCubic4d.Get(curve, t+0.01f));

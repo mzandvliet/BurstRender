@@ -90,6 +90,7 @@ public class Modeler : MonoBehaviour {
         _painter.Clear();
 
         var pj = new ProjectCurvesJob();
+        pj.rng = new Rng(_rng.NextUInt());
         pj.mat = _camera.projectionMatrix * _camera.worldToCameraMatrix;
         pj.controlPoints = _controls;
         pj.projectedControls = _projectedControls;
@@ -209,8 +210,8 @@ public class Modeler : MonoBehaviour {
                         var tangent = parentD - parentC;
                         var startPos =  parentD - tangent * 0.2f;
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, normalizedLevel, ref rng);
-                        colors[newChildIndex] = ToFloat3(Color.HSVToRGB(rng.NextFloat(), 0.7f, 0.9f)) * (0.6f + 0.3f * math.pow(normalizedLevel, 0.5f));
-                        widths[newChildIndex] = 6f / stack.Count;
+                        colors[newChildIndex] = GenerateColor(normalizedLevel, ref rng);
+                        widths[newChildIndex] = stack.Count == numLevels - 1 ? 3f : 6f / stack.Count;
                         parent.leftChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
@@ -224,8 +225,8 @@ public class Modeler : MonoBehaviour {
                         var tangent = parentD - parentC;
                         var startPos = parentD - tangent * 0.2f;
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, normalizedLevel, ref rng);
-                        colors[newChildIndex] = ToFloat3(Color.HSVToRGB(rng.NextFloat(), 0.7f, 0.9f)) * (0.6f + 0.3f * math.pow(normalizedLevel, 0.5f));
-                        widths[newChildIndex] = 6f / stack.Count;
+                        colors[newChildIndex] = GenerateColor(normalizedLevel, ref rng);
+                        widths[newChildIndex] = stack.Count == numLevels - 1 ? 3f : 6f / stack.Count;
                         parent.rightChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
@@ -242,6 +243,10 @@ public class Modeler : MonoBehaviour {
             tree.Dispose();
         }
 
+        private static float3 GenerateColor(float normalizedLevel, ref Rng rng) {
+            return ToFloat3(Color.HSVToRGB(rng.NextFloat() * 0.5f, 0.5f + normalizedLevel * 0.2f, 0.9f)) * (0.6f + 0.3f * math.pow(normalizedLevel, 0.5f));
+        }
+
         private static float3 ToFloat3(Color c) {
             return new float3(c.r, c.g, c.b);
         }
@@ -251,9 +256,13 @@ public class Modeler : MonoBehaviour {
             pos += startTangent;
             curve[1] = pos;
             for (int b = 2; b < 4; b++) {
-                var growth = rng.NextFloat3(
-                    new float3(-1f - level * 2f, 0.5f - 2f * level, -1f - level * 2f),
-                    new float3( 1f + level * 2f, 1f   - 2f * level,  1f + level * 2f));
+                var growth = 
+                    rng.NextFloat3(
+                        new float3(-1f - level * 4f, 0.5f - 2f * level, -1f - level * 4f),
+                        new float3( 1f + level * 4f, 1f   - 2f * level,  1f + level * 4f)) +
+                    new float3(level * 1f, 1f * level, 0f);
+                growth *= level == 1.0 ? 0.5f : 1f;
+
                 // Todo: add factor that avoids some clumping in the center canopy, biasing to growing outward radially
 
                 pos += growth;
@@ -359,6 +368,8 @@ public class Modeler : MonoBehaviour {
     }
 
     private struct ProjectCurvesJob : IJob {
+        public Rng rng;
+
         [ReadOnly] public float4x4 mat;
         [ReadOnly] public NativeArray<float3> controlPoints;
         [WriteOnly] public NativeArray<float4> projectedControls;
@@ -368,6 +379,9 @@ public class Modeler : MonoBehaviour {
                 float4 p = new float4(controlPoints[i], 1f);
                 p = math.mul(mat, p);
                 p.x *= 2f; // Hack: The aspect ratio is off, this gets it closer
+                var posJitter = rng.NextFloat2() * 0.1f;
+                p.x += posJitter.x;
+                p.y += posJitter.y;
                 projectedControls[i] = p;
             }
         }
