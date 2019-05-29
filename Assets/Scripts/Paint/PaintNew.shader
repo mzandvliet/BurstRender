@@ -1,12 +1,15 @@
 ﻿Shader "Custom/PaintStrokeMesh" {
 	Properties 	{
 		_MainTex("Texture", 2D) = "white" {}
+        _Cutoff ("Alpha cutoff", Range(0,1)) = 0.5
 	}
 
     SubShader {
-		Tags{ "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
-		ZWrite Off
-		Blend SrcAlpha OneMinusSrcAlpha
+        // Tags{ "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
+		Tags {"Queue"="AlphaTest" "IgnoreProjector"="True" "RenderType"="TransparentCutout"}
+		ZWrite On
+        // ZWrite Off
+		// Blend SrcAlpha OneMinusSrcAlpha
 		// Blend OneMinusDstAlpha DstAlpha
 
         Pass {
@@ -17,6 +20,7 @@
 
 			sampler2D _MainTex;
 			float4 _MainTex_ST;
+            fixed _Cutoff;
 
 			struct appdata {
 				float4 vertex : POSITION;
@@ -42,6 +46,7 @@
 
             fixed4 frag (v2f i) : SV_Target { 
 				fixed4 final = tex2D(_MainTex, i.uv);
+                clip(final.a - _Cutoff);
 				final *= i.color;
 				return final;
 			 }

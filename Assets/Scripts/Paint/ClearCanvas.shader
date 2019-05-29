@@ -24,7 +24,7 @@ Shader "Custom/ClearCanvas"
  
      float4 frag(v2f input) : SV_Target
      {
-        float4 result = float4(1,1,1,1);
+        float4 result = float4(0.8,0.9,1,1);
         // float4 result = float4(0.7,0.9,0.99,1);
         return result;
      }

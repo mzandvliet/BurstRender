@@ -183,7 +183,7 @@ public class Modeler : MonoBehaviour {
             var tree = new Tree(SumPowersOfTwo(numBranches));
 
             var rootIndex = tree.NewNode();
-            GrowBranch(controlPoints.Slice(0, 4), new float3(0f, 0f, 1f), ref rng);
+            GrowBranch(controlPoints.Slice(0, 4), new float3(0f, 0f, 1f), rng.NextFloat3(new float3(-1f, 0.5f, -1f), new float3(1f, 1f, 1f)), ref rng);
             stack.Push(rootIndex);
 
             while (stack.Count > 0) {
@@ -194,8 +194,11 @@ public class Modeler : MonoBehaviour {
                     if (parent.leftChild == -1) {
                         var newChildIndex = tree.NewNode();
                         var controlPointIndex = newChildIndex * 4;
-                        var pos = controlPoints[parent.index * 4 + 3];
-                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), pos, ref rng);
+                        var parentC = controlPoints[parent.index * 4 + 2];
+                        var parentD = controlPoints[parent.index * 4 + 3];
+                        var tangent = parentD - parentC;
+                        var startPos =  parentD - tangent * 0.2f;
+                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, ref rng);
                         colors[newChildIndex] = rng.NextFloat3();
                         parent.leftChild = newChildIndex;
                         stack.Push(newChildIndex);
@@ -205,8 +208,11 @@ public class Modeler : MonoBehaviour {
                     if (parent.rightChild == -1) {
                         var newChildIndex = tree.NewNode();
                         var controlPointIndex = newChildIndex * 4;
-                        var pos = controlPoints[parent.index * 4 + 3];
-                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), pos, ref rng);
+                        var parentC = controlPoints[parent.index * 4 + 2];
+                        var parentD = controlPoints[parent.index * 4 + 3];
+                        var tangent = parentD - parentC;
+                        var startPos = parentD - tangent * 0.2f;
+                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, ref rng);
                         colors[newChildIndex] = rng.NextFloat3();
                         parent.rightChild = newChildIndex;
                         stack.Push(newChildIndex);
@@ -224,9 +230,11 @@ public class Modeler : MonoBehaviour {
             tree.Dispose();
         }
 
-        private static void GrowBranch(NativeSlice<float3> curve, float3 pos, ref Rng rng) {
+        private static void GrowBranch(NativeSlice<float3> curve, float3 pos, float3 startTangent, ref Rng rng) {
             curve[0] = pos;
-            for (int b = 1; b < 4; b++) {
+            pos += startTangent;
+            curve[1] = pos;
+            for (int b = 2; b < 4; b++) {
                 var growth = rng.NextFloat3(new float3(-1f, 0.5f, -1f), new float3(1f, 1f, 1f));
                 pos += growth;
                 curve[b] = pos;
@@ -339,6 +347,7 @@ public class Modeler : MonoBehaviour {
             for (int i = 0; i < controlPoints.Length; i++) {
                 float4 p = new float4(controlPoints[i], 1f);
                 p = math.mul(mat, p);
+                p.x *= 2f; // Hack: The aspect ratio is off, this gets it closer
                 projectedControls[i] = p;
             }
         }

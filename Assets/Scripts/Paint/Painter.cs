@@ -155,14 +155,22 @@ public class Painter : MonoBehaviour {
             int numCurves = controls.Length / 4;
             for (int curveId = 0; curveId < numCurves; curveId++) {
                 float4 color = new float4(colors[curveId].x, colors[curveId].y, colors[curveId].z, 1f);
-                
+
+                var curve = controls.Slice(curveId * 4, 4);
+
+                float avgDepth = 0f;
+                for (int i = 0; i < 4; i++) {
+                    float t = i / 3f;
+                    var p = Util.PerspectiveDivide(BDCCubic4d.Get(curve, t));
+                    avgDepth += p.z;
+                }
+
                 for (int i = 0; i < TESSELATE_VERTICAL; i++) {
                     int stepId = curveId * TESSELATE_VERTICAL + i;
                     float t = i / (float)(TESSELATE_VERTICAL-1);
-
-                    var curve = controls.Slice(curveId * 4, 4);
+                    
                     float3 pos = Util.PerspectiveDivide(BDCCubic4d.Get(curve, t));
-                    float depth = pos.z;
+                    // float depth = pos.z;
                     float3 posDelta = Util.PerspectiveDivide(BDCCubic4d.Get(curve, t+0.01f));
                     pos.z = 0;
                     posDelta.z = 0;
@@ -175,7 +183,7 @@ public class Painter : MonoBehaviour {
 
                     var surfaceNormal = new float3(0, 0, -1);
 
-                    pos.z = depth;
+                    pos.z = avgDepth;
                     verts[stepId * 3 + 0] = pos + curveNormal;
                     verts[stepId * 3 + 1] = pos;
                     verts[stepId * 3 + 2] = pos - curveNormal;
