@@ -77,6 +77,11 @@ public class Painter : MonoBehaviour {
         _vertColorsMan = new Color[numVerts];
         _uvsMan = new Vector2[numVerts];
         _indicesMan = new int[numIndices];
+
+        var genIndicesJob = new GenerateIndicesJob();
+        genIndicesJob.numCurves = maxCurves;
+        genIndicesJob.indices = _indices;
+        genIndicesJob.Schedule().Complete();
     }
 
     private void OnDestroy() {
@@ -103,10 +108,8 @@ public class Painter : MonoBehaviour {
         tessJob.widths = widths;
         tessJob.vertColors = _vertColors;
         tessJob.uvs = _uvs;
-        tessJob.indices = _indices;
-        var h = tessJob.Schedule();
 
-        h.Complete();
+        tessJob.Schedule().Complete();
 
         UpdateMesh();
         
@@ -150,8 +153,6 @@ public class Painter : MonoBehaviour {
         public NativeArray<float3> normals;
         public NativeArray<float2> uvs;
         public NativeArray<float4> vertColors;
-        public NativeArray<int> indices;
-
 
         public void Execute() {
             int numCurves = controls.Length / 4;
@@ -206,26 +207,33 @@ public class Painter : MonoBehaviour {
                     uvs[stepId * 3 + 2] = new float2(1.0f, uvY * uvTile);
                 }
             }
+        }
+    }
 
-            // Todo: only have to generate and set these once
+    private struct GenerateIndicesJob : IJob {
+        [ReadOnly] public int numCurves;
+
+        public NativeArray<int> indices;
+
+        public void Execute() {
             for (int curveId = 0; curveId < numCurves; curveId++) {
-                for (int i = 0; i < TESSELATE_VERTICAL-1; i++) {
-                    int baseIdx = curveId * (TESSELATE_VERTICAL-1) * 12 + i * 12;
+                for (int i = 0; i < TESSELATE_VERTICAL - 1; i++) {
+                    int baseIdx = curveId * (TESSELATE_VERTICAL - 1) * 12 + i * 12;
                     int stepIdx = curveId * TESSELATE_VERTICAL + i;
 
-                    indices[baseIdx + 0 ] = (stepIdx + 0) * 3 + 0;
-                    indices[baseIdx + 1 ] = (stepIdx + 1) * 3 + 0;
-                    indices[baseIdx + 2 ] = (stepIdx + 1) * 3 + 1;
+                    indices[baseIdx + 0] = (stepIdx + 0) * 3 + 0;
+                    indices[baseIdx + 1] = (stepIdx + 1) * 3 + 0;
+                    indices[baseIdx + 2] = (stepIdx + 1) * 3 + 1;
 
-                    indices[baseIdx + 3 ] = (stepIdx + 0) * 3 + 0;
-                    indices[baseIdx + 4 ] = (stepIdx + 1) * 3 + 1;
-                    indices[baseIdx + 5 ] = (stepIdx + 0) * 3 + 1;
+                    indices[baseIdx + 3] = (stepIdx + 0) * 3 + 0;
+                    indices[baseIdx + 4] = (stepIdx + 1) * 3 + 1;
+                    indices[baseIdx + 5] = (stepIdx + 0) * 3 + 1;
 
-                    indices[baseIdx + 6 ] = (stepIdx + 0) * 3 + 1;
-                    indices[baseIdx + 7 ] = (stepIdx + 1) * 3 + 1;
-                    indices[baseIdx + 8 ] = (stepIdx + 1) * 3 + 2;
+                    indices[baseIdx + 6] = (stepIdx + 0) * 3 + 1;
+                    indices[baseIdx + 7] = (stepIdx + 1) * 3 + 1;
+                    indices[baseIdx + 8] = (stepIdx + 1) * 3 + 2;
 
-                    indices[baseIdx + 9 ] = (stepIdx + 0) * 3 + 1;
+                    indices[baseIdx + 9] = (stepIdx + 0) * 3 + 1;
                     indices[baseIdx + 10] = (stepIdx + 1) * 3 + 2;
                     indices[baseIdx + 11] = (stepIdx + 0) * 3 + 2;
                 }
