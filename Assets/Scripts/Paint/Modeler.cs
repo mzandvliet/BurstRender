@@ -37,6 +37,7 @@ public class Modeler : MonoBehaviour {
 
     private NativeArray<float3> _controls;
     private NativeArray<float4> _projectedControls;
+    private NativeArray<float> _widths;
     private NativeArray<float3> _colors;
 
     private Rng _rng;
@@ -48,30 +49,33 @@ public class Modeler : MonoBehaviour {
         _rng = new Rng(1234);
     }
 
-    private void OnDestroy() {
-        _controls.Dispose();
-        _projectedControls.Dispose();
-        _colors.Dispose();
-    }
-
     private void Start() {
         // const int numStrokes = 16;
         // _controls = new NativeArray<float3>(numStrokes * BDCCubic3d.NUM_POINTS, Allocator.Persistent);
 
-        int numBranches = 6;
+        int numBranches = 7;
         int numCurves = SumPowersOfTwo(numBranches);
         _controls = new NativeArray<float3>(numCurves * 4, Allocator.Persistent);
         _projectedControls = new NativeArray<float4>(_controls.Length, Allocator.Persistent);
+        _widths = new NativeArray<float>(numCurves, Allocator.Persistent);
         _colors = new NativeArray<float3>(numCurves, Allocator.Persistent);
 
         var treeJob = new GenerateFlowerJob();
         treeJob.numBranches = numBranches;
         treeJob.controlPoints = _controls;
+        treeJob.widths = _widths;
         treeJob.colors = _colors;
         treeJob.rng = new Rng(1234);
         treeJob.Schedule().Complete();
 
         _painter.Init(numCurves);
+    }
+
+    private void OnDestroy() {
+        _controls.Dispose();
+        _projectedControls.Dispose();
+        _widths.Dispose();
+        _colors.Dispose();
     }
 
     private void Update() {
@@ -94,7 +98,7 @@ public class Modeler : MonoBehaviour {
         h = pj.Schedule(h);
         h.Complete();
 
-        _painter.Draw(_projectedControls, _colors);
+        _painter.Draw(_projectedControls, _widths, _colors);
     }
 
     private void OnDrawGizmos() {
@@ -174,6 +178,7 @@ public class Modeler : MonoBehaviour {
         [ReadOnly] public int numBranches;
         public Rng rng;
         public NativeArray<float3> controlPoints;
+        [WriteOnly] public NativeArray<float> widths;
         [WriteOnly] public NativeArray<float3> colors;
 
         public void Execute() {
@@ -190,7 +195,6 @@ public class Modeler : MonoBehaviour {
                 var parent = tree.GetNode(stack.Peek());
 
                 if (stack.Count < numBranches) {
-                    
                     if (parent.leftChild == -1) {
                         var newChildIndex = tree.NewNode();
                         var controlPointIndex = newChildIndex * 4;
@@ -200,6 +204,7 @@ public class Modeler : MonoBehaviour {
                         var startPos =  parentD - tangent * 0.2f;
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, ref rng);
                         colors[newChildIndex] = rng.NextFloat3();
+                        widths[newChildIndex] = 3f / stack.Count;
                         parent.leftChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
@@ -214,6 +219,7 @@ public class Modeler : MonoBehaviour {
                         var startPos = parentD - tangent * 0.2f;
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, ref rng);
                         colors[newChildIndex] = rng.NextFloat3();
+                        widths[newChildIndex] = 3f / stack.Count;
                         parent.rightChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);

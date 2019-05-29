@@ -93,13 +93,14 @@ public class Painter : MonoBehaviour {
         Graphics.Blit(_canvasTex, _canvasTex, _blitClearCanvasMaterial);
     }
 
-    public void Draw(NativeArray<float4> curves, NativeArray<float3> colors) {
+    public void Draw(NativeArray<float4> curves, NativeArray<float> widths, NativeArray<float3> colors) {
         var tessJob = new TesselateCurvesJob();
         tessJob.controls = curves;
         tessJob.colors = colors;
 
         tessJob.verts = _verts;
         tessJob.normals = _normals;
+        tessJob.widths = widths;
         tessJob.vertColors = _vertColors;
         tessJob.uvs = _uvs;
         tessJob.indices = _indices;
@@ -142,6 +143,7 @@ public class Painter : MonoBehaviour {
 
     private struct TesselateCurvesJob : IJob {
         [ReadOnly] public NativeArray<float4> controls;
+        [ReadOnly] public NativeArray<float> widths;
         [ReadOnly] public NativeArray<float3> colors;
 
         public NativeArray<float3> verts;
@@ -178,7 +180,7 @@ public class Painter : MonoBehaviour {
                     float3 curveTangent = math.normalize(posDelta - pos);
                     float3 curveNormal = new float3(-curveTangent.y, curveTangent.x, 0f);
 
-                    float width = 0.05f;
+                    float width = widths[curveId] / avgDepth;
                     curveNormal *= width;
 
                     var surfaceNormal = new float3(0, 0, -1);
