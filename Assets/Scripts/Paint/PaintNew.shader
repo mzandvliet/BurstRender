@@ -5,11 +5,11 @@
 	}
 
     SubShader {
-        // Tags{ "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
-		Tags {"Queue"="AlphaTest" "IgnoreProjector"="True" "RenderType"="TransparentCutout"}
+        Tags{ "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
+		// Tags {"Queue"="AlphaTest" "IgnoreProjector"="True" "RenderType"="TransparentCutout"}
 		ZWrite On
         // ZWrite Off
-		// Blend SrcAlpha OneMinusSrcAlpha
+		Blend SrcAlpha OneMinusSrcAlpha
 		// Blend OneMinusDstAlpha DstAlpha
 
         Pass {

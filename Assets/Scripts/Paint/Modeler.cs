@@ -53,7 +53,7 @@ public class Modeler : MonoBehaviour {
         // const int numStrokes = 16;
         // _controls = new NativeArray<float3>(numStrokes * BDCCubic3d.NUM_POINTS, Allocator.Persistent);
 
-        int numBranches = 7;
+        int numBranches = 10;
         int numCurves = SumPowersOfTwo(numBranches);
         _controls = new NativeArray<float3>(numCurves * 4, Allocator.Persistent);
         _projectedControls = new NativeArray<float4>(_controls.Length, Allocator.Persistent);
@@ -61,7 +61,7 @@ public class Modeler : MonoBehaviour {
         _colors = new NativeArray<float3>(numCurves, Allocator.Persistent);
 
         var treeJob = new GenerateFlowerJob();
-        treeJob.numBranches = numBranches;
+        treeJob.numLevels = numBranches;
         treeJob.controlPoints = _controls;
         treeJob.widths = _widths;
         treeJob.colors = _colors;
@@ -79,9 +79,7 @@ public class Modeler : MonoBehaviour {
     }
 
     private void Update() {
-        if (Time.frameCount % 2 == 0) {
-            Paint();
-        }
+        Paint();
     }
 
     private void Paint() {
@@ -175,7 +173,7 @@ public class Modeler : MonoBehaviour {
     }
 
     private struct GenerateFlowerJob : IJob {
-        [ReadOnly] public int numBranches;
+        [ReadOnly] public int numLevels;
         public Rng rng;
         public NativeArray<float3> controlPoints;
         [WriteOnly] public NativeArray<float> widths;
@@ -184,17 +182,25 @@ public class Modeler : MonoBehaviour {
         public void Execute() {
             rng.InitState(12345);
 
-            var stack = new NativeStack<int>(SumPowersOfTwo(numBranches), Allocator.Temp);
-            var tree = new Tree(SumPowersOfTwo(numBranches));
+            var stack = new NativeStack<int>(SumPowersOfTwo(numLevels), Allocator.Temp);
+            var tree = new Tree(SumPowersOfTwo(numLevels));
 
             var rootIndex = tree.NewNode();
-            GrowBranch(controlPoints.Slice(0, 4), new float3(0f, 0f, 1f), rng.NextFloat3(new float3(-1f, 0.5f, -1f), new float3(1f, 1f, 1f)), ref rng);
+            GrowBranch(
+                controlPoints.Slice(0, 4),
+                new float3(0f, 0f, 1f),
+                rng.NextFloat3(new float3(-1f, 0.5f, -1f),
+                new float3(1f, 1f, 1f)),
+                0f,
+                ref rng);
             stack.Push(rootIndex);
 
             while (stack.Count > 0) {
                 var parent = tree.GetNode(stack.Peek());
 
-                if (stack.Count < numBranches) {
+                if (stack.Count < numLevels) {
+                    float normalizedLevel = stack.Count / (numLevels-1);
+
                     if (parent.leftChild == -1) {
                         var newChildIndex = tree.NewNode();
                         var controlPointIndex = newChildIndex * 4;
@@ -202,9 +208,9 @@ public class Modeler : MonoBehaviour {
                         var parentD = controlPoints[parent.index * 4 + 3];
                         var tangent = parentD - parentC;
                         var startPos =  parentD - tangent * 0.2f;
-                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, ref rng);
-                        colors[newChildIndex] = rng.NextFloat3();
-                        widths[newChildIndex] = 3f / stack.Count;
+                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, normalizedLevel, ref rng);
+                        colors[newChildIndex] = ToFloat3(Color.HSVToRGB(rng.NextFloat(), 0.7f, 0.9f)) * (0.6f + 0.3f * math.pow(normalizedLevel, 0.5f));
+                        widths[newChildIndex] = 6f / stack.Count;
                         parent.leftChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
@@ -217,9 +223,9 @@ public class Modeler : MonoBehaviour {
                         var parentD = controlPoints[parent.index * 4 + 3];
                         var tangent = parentD - parentC;
                         var startPos = parentD - tangent * 0.2f;
-                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, ref rng);
-                        colors[newChildIndex] = rng.NextFloat3();
-                        widths[newChildIndex] = 3f / stack.Count;
+                        GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, normalizedLevel, ref rng);
+                        colors[newChildIndex] = ToFloat3(Color.HSVToRGB(rng.NextFloat(), 0.7f, 0.9f)) * (0.6f + 0.3f * math.pow(normalizedLevel, 0.5f));
+                        widths[newChildIndex] = 6f / stack.Count;
                         parent.rightChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
@@ -236,12 +242,20 @@ public class Modeler : MonoBehaviour {
             tree.Dispose();
         }
 
-        private static void GrowBranch(NativeSlice<float3> curve, float3 pos, float3 startTangent, ref Rng rng) {
+        private static float3 ToFloat3(Color c) {
+            return new float3(c.r, c.g, c.b);
+        }
+
+        private static void GrowBranch(NativeSlice<float3> curve, float3 pos, float3 startTangent, float level, ref Rng rng) {
             curve[0] = pos;
             pos += startTangent;
             curve[1] = pos;
             for (int b = 2; b < 4; b++) {
-                var growth = rng.NextFloat3(new float3(-1f, 0.5f, -1f), new float3(1f, 1f, 1f));
+                var growth = rng.NextFloat3(
+                    new float3(-1f - level * 2f, 0.5f - 2f * level, -1f - level * 2f),
+                    new float3( 1f + level * 2f, 1f   - 2f * level,  1f + level * 2f));
+                // Todo: add factor that avoids some clumping in the center canopy, biasing to growing outward radially
+
                 pos += growth;
                 curve[b] = pos;
             }
