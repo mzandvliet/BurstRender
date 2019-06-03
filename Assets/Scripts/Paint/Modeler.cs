@@ -90,7 +90,6 @@ public class Modeler : MonoBehaviour {
         _painter.Clear();
 
         var pj = new ProjectCurvesJob();
-        pj.rng = new Rng(_rng.NextUInt());
         pj.mat = _camera.projectionMatrix * _camera.worldToCameraMatrix;
         pj.controlPoints = _controls;
         pj.projectedControls = _projectedControls;
@@ -208,10 +207,10 @@ public class Modeler : MonoBehaviour {
                         var parentC = controlPoints[parent.index * 4 + 2];
                         var parentD = controlPoints[parent.index * 4 + 3];
                         var tangent = parentD - parentC;
-                        var startPos =  parentD - tangent * 0.2f;
+                        var startPos =  parentD - tangent * 0.5f;
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, normalizedLevel, ref rng);
                         colors[newChildIndex] = GenerateColor(normalizedLevel, ref rng);
-                        widths[newChildIndex] = stack.Count == numLevels - 1 ? 3f : 6f / stack.Count;
+                        widths[newChildIndex] = stack.Count == numLevels - 1 ? 3f : 8f / stack.Count;
                         parent.leftChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
@@ -223,10 +222,10 @@ public class Modeler : MonoBehaviour {
                         var parentC = controlPoints[parent.index * 4 + 2];
                         var parentD = controlPoints[parent.index * 4 + 3];
                         var tangent = parentD - parentC;
-                        var startPos = parentD - tangent * 0.2f;
+                        var startPos = parentD - tangent * 0.3f;
                         GrowBranch(controlPoints.Slice(controlPointIndex, 4), startPos, tangent, normalizedLevel, ref rng);
                         colors[newChildIndex] = GenerateColor(normalizedLevel, ref rng);
-                        widths[newChildIndex] = stack.Count == numLevels - 1 ? 3f : 6f / stack.Count;
+                        widths[newChildIndex] = stack.Count == numLevels - 1 ? 3f : 8f / stack.Count;
                         parent.rightChild = newChildIndex;
                         stack.Push(newChildIndex);
                         tree.Set(parent);
@@ -244,7 +243,10 @@ public class Modeler : MonoBehaviour {
         }
 
         private static float3 GenerateColor(float normalizedLevel, ref Rng rng) {
-            return ToFloat3(Color.HSVToRGB(rng.NextFloat() * 0.5f, 0.5f + normalizedLevel * 0.2f, 0.9f)) * (0.6f + 0.3f * math.pow(normalizedLevel, 0.5f));
+            return ToFloat3(Color.HSVToRGB(
+                normalizedLevel * 0.4f + rng.NextFloat() * 0.2f,
+                0.5f + normalizedLevel * 0.2f,
+                0.9f)) * (0.6f + 0.3f * math.pow(normalizedLevel, 2f));
         }
 
         private static float3 ToFloat3(Color c) {
@@ -255,11 +257,12 @@ public class Modeler : MonoBehaviour {
             curve[0] = pos;
             pos += startTangent;
             curve[1] = pos;
+            float maxOutward = rng.NextFloat(2f, level == 1.0 ? 3f : 14f);
             for (int b = 2; b < 4; b++) {
                 var growth = 
                     rng.NextFloat3(
-                        new float3(-1f - level * 4f, 0.5f - 2f * level, -1f - level * 4f),
-                        new float3( 1f + level * 4f, 1f   - 2f * level,  1f + level * 4f)) +
+                        new float3(-1f - level * maxOutward, 0.5f - 2f * level, -1f - level * maxOutward),
+                        new float3( 1f + level * maxOutward, 1f   - 2f * level,  1f + level * maxOutward)) +
                     new float3(level * 1f, 1f * level, 0f);
                 growth *= level == 1.0 ? 0.5f : 1f;
 
@@ -368,8 +371,6 @@ public class Modeler : MonoBehaviour {
     }
 
     private struct ProjectCurvesJob : IJob {
-        public Rng rng;
-
         [ReadOnly] public float4x4 mat;
         [ReadOnly] public NativeArray<float3> controlPoints;
         [WriteOnly] public NativeArray<float4> projectedControls;
@@ -379,9 +380,6 @@ public class Modeler : MonoBehaviour {
                 float4 p = new float4(controlPoints[i], 1f);
                 p = math.mul(mat, p);
                 p.x *= 2f; // Hack: The aspect ratio is off, this gets it closer
-                var posJitter = rng.NextFloat2() * 0.1f;
-                p.x += posJitter.x;
-                p.y += posJitter.y;
                 projectedControls[i] = p;
             }
         }
