@@ -33,18 +33,13 @@ public class Modeler : MonoBehaviour {
     [SerializeField] private Surface _surface;
     [SerializeField] private Painter _painter;
 
-    private Camera _camera;
-
     private NativeArray<float3> _controls;
-    private NativeArray<float4> _projectedControls;
     private NativeArray<float> _widths;
     private NativeArray<float3> _colors;
 
     private Rng _rng;
 
     private void Awake() {
-        _camera = gameObject.GetComponent<Camera>();
-        _camera.enabled = true;
 
         _rng = new Rng(1234);
     }
@@ -56,7 +51,6 @@ public class Modeler : MonoBehaviour {
         int numBranches = 10;
         int numCurves = SumPowersOfTwo(numBranches);
         _controls = new NativeArray<float3>(numCurves * 4, Allocator.Persistent);
-        _projectedControls = new NativeArray<float4>(_controls.Length, Allocator.Persistent);
         _widths = new NativeArray<float>(numCurves, Allocator.Persistent);
         _colors = new NativeArray<float3>(numCurves, Allocator.Persistent);
 
@@ -73,30 +67,14 @@ public class Modeler : MonoBehaviour {
 
     private void OnDestroy() {
         _controls.Dispose();
-        _projectedControls.Dispose();
         _widths.Dispose();
         _colors.Dispose();
     }
 
     private void Update() {
-        Paint();
-    }
-
-    private void Paint() {
-        var h = new JobHandle();
-        
         // CreateStrokesForSurface();
-
         _painter.Clear();
-
-        var pj = new ProjectCurvesJob();
-        pj.mat = _camera.projectionMatrix * _camera.worldToCameraMatrix;
-        pj.controlPoints = _controls;
-        pj.projectedControls = _projectedControls;
-        h = pj.Schedule(h);
-        h.Complete();
-
-        _painter.Draw(_projectedControls, _widths, _colors);
+        _painter.Draw(_controls, _widths, _colors);
     }
 
     private void OnDrawGizmos() {
@@ -172,6 +150,7 @@ public class Modeler : MonoBehaviour {
         surfacePoints.Dispose();
     }
 
+    // [BurstCompile] // Note: can't do this yet due to temp buffer creation inside job
     private struct GenerateFlowerJob : IJob {
         [ReadOnly] public int numLevels;
         public Rng rng;
@@ -331,6 +310,7 @@ public class Modeler : MonoBehaviour {
         return v;
     }
 
+    [BurstCompile]
     private struct GenerateSurfaceStrokesJob : IJob {
         public Rng rng;
 
@@ -368,66 +348,5 @@ public class Modeler : MonoBehaviour {
 
             tempCurve.Dispose();
         }
-    }
-
-    private struct ProjectCurvesJob : IJob {
-        [ReadOnly] public float4x4 mat;
-        [ReadOnly] public NativeArray<float3> controlPoints;
-        [WriteOnly] public NativeArray<float4> projectedControls;
-
-        public void Execute() {
-            for (int i = 0; i < controlPoints.Length; i++) {
-                float4 p = new float4(controlPoints[i], 1f);
-                p = math.mul(mat, p);
-                p.x *= 2f; // Hack: The aspect ratio is off, this gets it closer
-                projectedControls[i] = p;
-            }
-        }
-    }
-}
-
-public struct NativeStack<T> : IDisposable where T : struct {
-    private NativeArray<T> _items;
-    private int _current;
-
-    public int Count {
-        get { return _current+1; }
-    }
-
-    public NativeStack(int capacity, Allocator allocator) {
-        _items = new NativeArray<T>(capacity, allocator, NativeArrayOptions.ClearMemory);
-        _current = -1;
-    }
-
-    public void Dispose() {
-        _items.Dispose();
-    }
-
-    public void Push(T item) {
-        if (_current + 1 > _items.Length) {
-            throw new Exception("Push failed. Stack has already reached maximum capacity.");
-        }
-
-        _current++;
-        _items[_current] = item;
-    }
-
-    public T Pop() {
-        if(_current == -1) {
-            throw new Exception("Pop failed. Stack is empty.");
-        }
-
-        T item = _items[_current];
-        _current--;
-        return item;
-    }
-
-    public T Peek() {
-        if (_current == -1) {
-            throw new Exception("Peek failed. Stack is empty.");
-        }
-
-        T item = _items[_current];
-        return item;
     }
 }

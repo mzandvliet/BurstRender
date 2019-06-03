@@ -9,6 +9,10 @@ using UnityEngine.Rendering;
 using System.Runtime.InteropServices;
 
 public class Painter : MonoBehaviour {
+    [SerializeField] private Camera _painterEyeCamera;
+    [SerializeField] private Camera _canvasSplatCamera;
+
+
     [SerializeField] private Material _paintMaterial;
 
     [SerializeField] private Material _blitClearCanvasMaterial;
@@ -19,7 +23,8 @@ public class Painter : MonoBehaviour {
     private MeshFilter _meshFilter;
     private MeshRenderer _meshRenderer;
 
-    private Camera _camera;
+
+    private NativeArray<float4> _projectedControls;
 
     private NativeArray<float3> _verts;
     private NativeArray<float3> _normals;
@@ -44,11 +49,10 @@ public class Painter : MonoBehaviour {
         _canvasTex = new RenderTexture(Screen.currentResolution.width, Screen.currentResolution.height, 24);
         _canvasTex.Create();
 
-        _camera = gameObject.GetComponent<Camera>();
-        _camera.orthographicSize = 1f;
-        _camera.orthographic = true;
-        _camera.targetTexture = _canvasTex;
-        _camera.enabled = false;
+        _canvasSplatCamera.orthographicSize = 1f;
+        _canvasSplatCamera.orthographic = true;
+        _canvasSplatCamera.targetTexture = _canvasTex;
+        _canvasSplatCamera.enabled = false;
 
         _rng = new Rng(1234);
 
@@ -63,6 +67,8 @@ public class Painter : MonoBehaviour {
     }
 
     public void Init(int maxCurves) {
+        _projectedControls = new NativeArray<float4>(maxCurves * 4, Allocator.Persistent);
+
         int numVerts = maxCurves * TESSELATE_VERTICAL * TESSELATE_HORIZONTAL;
         int numIndices = maxCurves * (TESSELATE_VERTICAL-1) * (TESSELATE_HORIZONTAL-1) * 6;
 
@@ -85,6 +91,8 @@ public class Painter : MonoBehaviour {
     }
 
     private void OnDestroy() {
+        _projectedControls.Dispose();
+
         _verts.Dispose();
         _normals.Dispose();
         _vertColors.Dispose();
@@ -98,11 +106,21 @@ public class Painter : MonoBehaviour {
         Graphics.Blit(_canvasTex, _canvasTex, _blitClearCanvasMaterial);
     }
 
-    public void Draw(NativeArray<float4> curves, NativeArray<float> widths, NativeArray<float3> colors) {
-        var tessJob = new TesselateCurvesJob();
-        tessJob.rng = new Rng(_rng.NextUInt());
+    public void Draw(NativeArray<float3> curves, NativeArray<float> widths, NativeArray<float3> colors) {
+        var jobHandle = new JobHandle();
+
+        // Project
+
+        var projJob = new ProjectCurvesJob();
+        projJob.mat = _painterEyeCamera.projectionMatrix * _painterEyeCamera.worldToCameraMatrix;
+        projJob.controlPoints = curves;
+        projJob.projectedControls = _projectedControls;
+        jobHandle = projJob.Schedule(jobHandle);
+
+        // Tessellate
         
-        tessJob.controls = curves;
+        var tessJob = new TesselateCurvesJob();
+        tessJob.controls = _projectedControls;
         tessJob.colors = colors;
 
         tessJob.verts = _verts;
@@ -111,11 +129,14 @@ public class Painter : MonoBehaviour {
         tessJob.vertColors = _vertColors;
         tessJob.uvs = _uvs;
 
-        tessJob.Schedule().Complete();
+        jobHandle = tessJob.Schedule(jobHandle);
+
+        // Finish
+
+        jobHandle.Complete();
 
         UpdateMesh();
-        
-        _camera.Render();
+        _canvasSplatCamera.Render();
     }
 
     private void UpdateMesh() {
@@ -147,9 +168,8 @@ public class Painter : MonoBehaviour {
         Move to vertex shader or compute shader
      */
 
+    [BurstCompile]
     private struct TesselateCurvesJob : IJob {
-        public Rng rng;
-
         [ReadOnly] public NativeArray<float4> controls;
         [ReadOnly] public NativeArray<float> widths;
         [ReadOnly] public NativeArray<float3> colors;
@@ -161,6 +181,7 @@ public class Painter : MonoBehaviour {
 
         public void Execute() {
             int numCurves = controls.Length / 4;
+
             for (int curveId = 0; curveId < numCurves; curveId++) {
                 float4 color = new float4(colors[curveId].x, colors[curveId].y, colors[curveId].z, 1f);
 
@@ -215,10 +236,11 @@ public class Painter : MonoBehaviour {
         }
     }
 
+    [BurstCompile]
     private struct GenerateIndicesJob : IJob {
         [ReadOnly] public int numCurves;
 
-        public NativeArray<int> indices;
+        [WriteOnly] public NativeArray<int> indices;
 
         public void Execute() {
             for (int curveId = 0; curveId < numCurves; curveId++) {
@@ -242,6 +264,22 @@ public class Painter : MonoBehaviour {
                     indices[baseIdx + 10] = (stepIdx + 1) * 3 + 2;
                     indices[baseIdx + 11] = (stepIdx + 0) * 3 + 2;
                 }
+            }
+        }
+    }
+
+    [BurstCompile]
+    private struct ProjectCurvesJob : IJob {
+        [ReadOnly] public float4x4 mat;
+        [ReadOnly] public NativeArray<float3> controlPoints;
+        [WriteOnly] public NativeArray<float4> projectedControls;
+
+        public void Execute() {
+            for (int i = 0; i < controlPoints.Length; i++) {
+                float4 p = new float4(controlPoints[i], 1f);
+                p = math.mul(mat, p);
+                p.x *= 2f; // Hack: The aspect ratio is off, this gets it closer
+                projectedControls[i] = p;
             }
         }
     }
