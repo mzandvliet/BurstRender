@@ -3,7 +3,7 @@ Toying with some software rendering algorithms using Unity's new Burst compiler 
 
 ![](https://i.imgur.com/Nl7WbBI.jpeg)
 
-Here's some renders of a WIP implementation of Peter Shirley's Raytracing in One Weekend book, which I started with:
+Here's some renders of a WIP implementation of Peter Shirley's [Raytracing in One Weekend book](https://in1weekend.blogspot.com/2016/01/ray-tracing-in-one-weekend.html), which I started with:
 ![](https://i.imgur.com/rKvQ1Cz.jpeg)
 ![](https://i.imgur.com/CpmjLDv.jpeg)
 
